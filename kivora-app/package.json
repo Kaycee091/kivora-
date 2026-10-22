@@ -1,0 +1,21 @@
+{
+  "name": "kivora-monorepo",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Kivora membership, attendance and branch management system",
+  "scripts": {
+    "web:dev": "pnpm --filter @kivora/web-admin dev",
+    "web:build": "pnpm --filter @kivora/web-admin build",
+    "web:test": "pnpm --filter @kivora/web-admin test",
+    "web:lint": "pnpm --filter @kivora/web-admin lint",
+    "server:test": "pnpm --filter @kivora/server test",
+    "validate": "node scripts/validate-workspace.js",
+    "check-env": "node scripts/check-environment.js",
+    "test:all": "pnpm web:test && pnpm server:test"
+  },
+  "packageManager": "pnpm@10.15.0",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
