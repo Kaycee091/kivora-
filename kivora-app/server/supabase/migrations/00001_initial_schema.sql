@@ -41,8 +41,10 @@ CREATE TABLE IF NOT EXISTS public.branches (
     trusted_network_cidrs TEXT[] NOT NULL DEFAULT '{}',
     contact_email TEXT,
     contact_phone TEXT,
+    created_by UUID REFERENCES public.profiles(id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
 );
+
 
 -- 4. User Branch Assignments (Tracks active membership & scoped roles)
 CREATE TABLE IF NOT EXISTS public.user_branch_assignments (
@@ -108,3 +110,75 @@ CREATE INDEX IF NOT EXISTS idx_assignments_user ON public.user_branch_assignment
 CREATE INDEX IF NOT EXISTS idx_assignments_branch ON public.user_branch_assignments(branch_id);
 CREATE INDEX IF NOT EXISTS idx_membership_req_branch ON public.branch_membership_requests(branch_id);
 CREATE INDEX IF NOT EXISTS idx_membership_req_status ON public.branch_membership_requests(status);
+
+-- ============================================================================
+-- 8. Automatic Profile Creation Trigger on auth.users
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, pg_temp
+AS $$
+DECLARE
+    user_full_name TEXT;
+    user_email TEXT;
+BEGIN
+    -- Safely extract full name from user metadata or derive from email prefix
+    user_full_name := COALESCE(
+        NULLIF(TRIM(NEW.raw_user_meta_data->>'full_name'), ''),
+        NULLIF(TRIM(NEW.raw_user_meta_data->>'name'), ''),
+        SPLIT_PART(COALESCE(NEW.email, 'User'), '@', 1)
+    );
+
+    user_email := COALESCE(
+        NULLIF(TRIM(NEW.email), ''),
+        NEW.id::text || '@auth.kivora.local'
+    );
+
+    INSERT INTO public.profiles (
+        id,
+        full_name,
+        email,
+        account_status,
+        created_at,
+        updated_at
+    )
+    VALUES (
+        NEW.id,
+        user_full_name,
+        user_email,
+        'active',
+        timezone('utc', now()),
+        timezone('utc', now())
+    )
+    ON CONFLICT (id) DO UPDATE
+    SET
+        email = EXCLUDED.email,
+        full_name = CASE 
+            WHEN public.profiles.full_name IS NULL OR TRIM(public.profiles.full_name) = '' 
+            THEN EXCLUDED.full_name 
+            ELSE public.profiles.full_name 
+        END,
+        updated_at = timezone('utc', now());
+
+    RETURN NEW;
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE WARNING 'handle_new_user failed for auth.users id %: %', NEW.id, SQLERRM;
+        RETURN NEW;
+END;
+$$;
+
+
+-- Restrict execution so client cannot invoke trigger function directly
+REVOKE ALL ON FUNCTION public.handle_new_user() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.handle_new_user() FROM anon;
+REVOKE ALL ON FUNCTION public.handle_new_user() FROM authenticated;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW
+    EXECUTE FUNCTION public.handle_new_user();
+

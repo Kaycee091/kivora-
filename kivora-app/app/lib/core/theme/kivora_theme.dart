@@ -89,7 +89,7 @@ class KivoraTheme {
           fontSize: 14,
         ),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: KivoraColors.surface,
         elevation: 0,
         shape: RoundedRectangleBorder(

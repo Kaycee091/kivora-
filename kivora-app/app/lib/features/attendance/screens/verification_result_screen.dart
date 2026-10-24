@@ -106,7 +106,7 @@ class VerificationResultScreen extends StatelessWidget {
               if (isSuccess) ...[
                 KivoraButton(
                   text: 'View Details',
-                  onPressed: () => context.go('/member/home'),
+                  onPressed: () => context.push('/member/attendance/history'),
                 ),
                 const SizedBox(height: 12),
                 KivoraButton(
@@ -123,7 +123,7 @@ class VerificationResultScreen extends StatelessWidget {
                 KivoraButton(
                   text: 'Contact Support',
                   isOutline: true,
-                  onPressed: () => context.go('/member/home'),
+                  onPressed: () => context.push('/member/settings/help'),
                 ),
               ],
               const SizedBox(height: 10),
