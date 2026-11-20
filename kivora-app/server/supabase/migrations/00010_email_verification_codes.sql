@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS public.email_verification_codes (
 
 ALTER TABLE public.email_verification_codes ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.email_verification_codes FROM anon, authenticated;
+-- Newer Supabase projects don't auto-grant table access to service_role.
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.email_verification_codes TO service_role;
 
 -- Look up an auth user by email (supabase-js admin API has no direct lookup).
 CREATE OR REPLACE FUNCTION public.get_auth_user_by_email(p_email TEXT)
