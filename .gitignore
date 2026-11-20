@@ -1,0 +1,15 @@
+# Local development & IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment & credentials
+.env
+.env.local
+*.local
+
+# System
+Thumbs.db
+.DS_Store
+

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/kivora_theme.dart';
+import '../../../core/services/auth_service.dart';
 import '../../../core/services/kivora_service.dart';
 
 class MemberHomeScreen extends StatefulWidget {
@@ -79,7 +80,11 @@ class _MemberHomeScreenState extends State<MemberHomeScreen> {
                   children: [
                     const Text('Good morning,', style: TextStyle(fontSize: 14, color: KivoraColors.textSecondary)),
                     Text(
-                      KivoraService().currentUserName.isNotEmpty ? KivoraService().currentUserName : 'Alex Johnson',
+                      KivoraService().currentUserName.isNotEmpty
+                          ? KivoraService().currentUserName
+                          : (KivoraService().currentUserEmail.isNotEmpty
+                              ? KivoraService().currentUserEmail.split('@').first
+                              : 'Member'),
                       style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: KivoraColors.textPrimary),
                     ),
                     Builder(
@@ -134,49 +139,95 @@ class _MemberHomeScreenState extends State<MemberHomeScreen> {
               ),
               const SizedBox(height: 24),
 
-              // Today's Attendance Card (Clickable to History)
-              GestureDetector(
-                onTap: () => context.push('/member/attendance/history'),
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: KivoraColors.border),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.02),
-                        blurRadius: 6,
-                        offset: const Offset(0, 2),
+              // Today's Attendance Card (Dynamically bound to real records)
+              Builder(
+                builder: (context) {
+                  final now = DateTime.now();
+                  final memberId = AuthService().currentUserId;
+                  AttendanceRecordModel? todayRecord;
+                  for (final r in KivoraService().attendanceRecords) {
+                    if ((memberId == null || r.memberId == memberId) &&
+                        r.signInTime.year == now.year &&
+                        r.signInTime.month == now.month &&
+                        r.signInTime.day == now.day) {
+                      todayRecord = r;
+                      break;
+                    }
+                  }
+
+                  final isPresent = todayRecord != null;
+                  String timeStr = 'Tap to complete today\'s verification';
+                  if (todayRecord != null) {
+                    final rawHour = todayRecord.signInTime.hour % 12 == 0 ? 12 : todayRecord.signInTime.hour % 12;
+                    final hour = rawHour.toString().padLeft(2, '0');
+                    final min = todayRecord.signInTime.minute.toString().padLeft(2, '0');
+                    final ampm = todayRecord.signInTime.hour >= 12 ? 'PM' : 'AM';
+                    timeStr = 'Checked in $hour:$min $ampm • Verified';
+                  }
+
+                  return GestureDetector(
+                    onTap: () {
+                      if (isPresent) {
+                        context.push('/member/attendance/history');
+                      } else {
+                        context.push('/member/attendance/check-in');
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: KivoraColors.border),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.02),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: KivoraColors.successSurface,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(Icons.check_circle, color: KivoraColors.success, size: 24),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: isPresent ? KivoraColors.successSurface : const Color(0xFFFFFBEB),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Icon(
+                              isPresent ? Icons.check_circle : Icons.schedule,
+                              color: isPresent ? KivoraColors.success : const Color(0xFFF59E0B),
+                              size: 24,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text("Today's Attendance", style: TextStyle(fontSize: 12, color: KivoraColors.textSecondary)),
+                                const SizedBox(height: 2),
+                                Text(
+                                  isPresent ? "Present" : "Not Checked In",
+                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: KivoraColors.textPrimary),
+                                ),
+                                Text(
+                                  timeStr,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: isPresent ? KivoraColors.success : const Color(0xFFB45309),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(Icons.chevron_right, color: KivoraColors.textMuted),
+                        ],
                       ),
-                      const SizedBox(width: 14),
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text("Today's Attendance", style: TextStyle(fontSize: 12, color: KivoraColors.textSecondary)),
-                            SizedBox(height: 2),
-                            Text("Present", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: KivoraColors.textPrimary)),
-                            Text("Checked in 08:02 AM • Verified", style: TextStyle(fontSize: 12, color: KivoraColors.success)),
-                          ],
-                        ),
-                      ),
-                      const Icon(Icons.chevron_right, color: KivoraColors.textMuted),
-                    ],
-                  ),
-                ),
+                    ),
+                  );
+                },
               ),
               const SizedBox(height: 24),
 

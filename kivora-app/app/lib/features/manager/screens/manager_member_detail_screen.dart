@@ -16,25 +16,18 @@ class _ManagerMemberDetailScreenState extends State<ManagerMemberDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final member = KivoraService().getMemberById(widget.memberId) ??
-        // Fallback for demo or direct route
         MemberProfileModel(
           memberId: widget.memberId,
-          name: 'Alex Johnson',
-          email: 'alex.johnson@kivora.edu.ng',
-          phone: '+234 801 234 5678',
-          branchId: 'branch-west',
-          branchName: 'West Campus',
-          role: 'Student',
+          name: 'Member (${widget.memberId.length > 8 ? widget.memberId.substring(0, 8) : widget.memberId})',
+          email: '',
+          phone: '',
+          branchId: KivoraService().currentBranchId ?? '',
+          branchName: KivoraService().currentBranch?.name ?? 'Branch',
+          role: 'Member',
           status: 'Active',
-          photoAttached: true,
-          submittedFields: {
-            'Full Name': 'Alex Johnson',
-            'Email Address': 'alex.johnson@kivora.edu.ng',
-            'Phone Number': '+234 801 234 5678',
-            'Student / Employee ID': 'KIV-2026-0891',
-            'National ID (NIN)': 'NIN-99482710492',
-          },
-          joinedAt: DateTime(2025, 4, 12),
+          photoAttached: false,
+          submittedFields: {},
+          joinedAt: DateTime.now(),
         );
 
     // Fetch this member's actual sign-ins

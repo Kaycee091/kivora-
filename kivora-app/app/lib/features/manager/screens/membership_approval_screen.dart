@@ -3,8 +3,8 @@ import 'package:go_router/go_router.dart';
 import '../../../core/services/kivora_service.dart';
 
 class MembershipApprovalScreen extends StatefulWidget {
-  final String branchId;
-  const MembershipApprovalScreen({super.key, this.branchId = 'branch-west'});
+  final String? branchId;
+  const MembershipApprovalScreen({super.key, this.branchId});
 
   @override
   State<MembershipApprovalScreen> createState() => _MembershipApprovalScreenState();
@@ -12,10 +12,31 @@ class MembershipApprovalScreen extends StatefulWidget {
 
 class _MembershipApprovalScreenState extends State<MembershipApprovalScreen> {
   int _selectedApplicationIndex = 0;
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadApplications();
+  }
+
+  Future<void> _loadApplications() async {
+    final activeBranchId = widget.branchId ?? KivoraService().currentBranchId ?? '';
+    if (activeBranchId.isNotEmpty) {
+      setState(() => _isLoading = true);
+      try {
+        await KivoraService().fetchApplicationsForBranch(activeBranchId);
+      } catch (e) {
+        debugPrint('fetchApplicationsForBranch error: $e');
+      }
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final pendingApps = KivoraService().getPendingApplications(widget.branchId).reversed.toList();
+    final activeBranchId = widget.branchId ?? KivoraService().currentBranchId ?? '';
+    final pendingApps = KivoraService().getPendingApplications(activeBranchId).reversed.toList();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -33,7 +54,9 @@ class _MembershipApprovalScreenState extends State<MembershipApprovalScreen> {
         centerTitle: true,
       ),
       body: SafeArea(
-        child: pendingApps.isEmpty
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator(color: Color(0xFF0D9488)))
+            : pendingApps.isEmpty
             ? Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -122,10 +145,15 @@ class _MembershipApprovalScreenState extends State<MembershipApprovalScreen> {
                                   CircleAvatar(
                                     radius: 28,
                                     backgroundColor: const Color(0xFFE0F2F1),
-                                    child: Text(
-                                      activeApp.userName.split(' ').map((n) => n.isNotEmpty ? n[0] : '').join(''),
-                                      style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0D9488), fontSize: 16),
-                                    ),
+                                    backgroundImage: (activeApp.photoUrl != null && activeApp.photoUrl!.isNotEmpty)
+                                        ? NetworkImage(activeApp.photoUrl!)
+                                        : null,
+                                    child: (activeApp.photoUrl == null || activeApp.photoUrl!.isEmpty)
+                                        ? Text(
+                                            activeApp.userName.split(' ').map((n) => n.isNotEmpty ? n[0] : '').join(''),
+                                            style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0D9488), fontSize: 16),
+                                          )
+                                        : null,
                                   ),
                                   const SizedBox(width: 14),
                                   Expanded(
@@ -176,6 +204,21 @@ class _MembershipApprovalScreenState extends State<MembershipApprovalScreen> {
                                     'Photo Provided',
                                     activeApp.photoAttached ? 'Yes (Verified Attached)' : 'No Photo',
                                   ),
+                                  if (activeApp.photoUrl != null && activeApp.photoUrl!.isNotEmpty) ...[
+                                    const Divider(height: 20, color: Color(0xFFF1F5F9)),
+                                    const Text('Attached Identity Photograph', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                                    const SizedBox(height: 8),
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(10),
+                                      child: Image.network(
+                                        activeApp.photoUrl!,
+                                        height: 120,
+                                        width: 120,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) => const Text('Could not load image preview', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                                      ),
+                                    ),
+                                  ],
 
                                   ...activeApp.submittedData.entries.where((e) =>
                                       e.key != 'full_name' &&
@@ -199,8 +242,9 @@ class _MembershipApprovalScreenState extends State<MembershipApprovalScreen> {
                               children: [
                                 Expanded(
                                   child: OutlinedButton(
-                                    onPressed: () {
-                                      KivoraService().rejectApplication(activeApp.id);
+                                    onPressed: () async {
+                                      await KivoraService().rejectApplication(activeApp.id);
+                                      if (!context.mounted) return;
                                       ScaffoldMessenger.of(context).showSnackBar(
                                         SnackBar(
                                           content: Text('Application for ${activeApp.userName} was rejected.'),
@@ -229,8 +273,9 @@ class _MembershipApprovalScreenState extends State<MembershipApprovalScreen> {
                                 const SizedBox(width: 14),
                                 Expanded(
                                   child: ElevatedButton(
-                                    onPressed: () {
-                                      KivoraService().approveApplication(activeApp.id);
+                                    onPressed: () async {
+                                      await KivoraService().approveApplication(activeApp.id);
+                                      if (!context.mounted) return;
                                       ScaffoldMessenger.of(context).showSnackBar(
                                         SnackBar(
                                           content: Text('Application for ${activeApp.userName} approved! Member is now active.'),

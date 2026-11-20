@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/services/auth_service.dart';
 import '../../../core/services/kivora_service.dart';
 
 class ManagerDashboardScreen extends StatefulWidget {
@@ -11,6 +12,34 @@ class ManagerDashboardScreen extends StatefulWidget {
 
 class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
   int _bottomNavIndex = 0;
+  bool _isLoadingBranch = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentBranch();
+  }
+
+  Future<void> _loadCurrentBranch() async {
+    setState(() => _isLoadingBranch = true);
+    try {
+      if (KivoraService().currentBranchId == null) {
+        await KivoraService().fetchCurrentBranch();
+      }
+      final bId = KivoraService().currentBranchId;
+      if (bId != null) {
+        await Future.wait([
+          KivoraService().fetchBranchMembers(bId),
+          KivoraService().fetchApplicationsForBranch(bId),
+        ]);
+      }
+    } catch (e) {
+      debugPrint('Dashboard branch fetch note: $e');
+    }
+    if (mounted) {
+      setState(() => _isLoadingBranch = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -47,6 +76,21 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                         'Kivora',
                         style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                       ),
+                      if (AuthService().isDemoMode) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF3C7),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: const Color(0xFFF59E0B)),
+                          ),
+                          child: const Text(
+                            'DEMO',
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFFB45309)),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                   Row(
@@ -56,10 +100,14 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                         tooltip: 'Switch to Member View',
                         onPressed: () {
                           KivoraService().setCurrentUser(
-                            email: 'alex.johnson@kivora.edu.ng',
-                            name: 'Alex Johnson',
+                            email: KivoraService().currentUserEmail.isNotEmpty
+                                ? KivoraService().currentUserEmail
+                                : 'member@kivora.org',
+                            name: KivoraService().currentUserName.isNotEmpty
+                                ? KivoraService().currentUserName
+                                : 'Member User',
                             role: 'member',
-                            branchId: 'branch-west',
+                            branchId: KivoraService().currentBranchId,
                           );
                           context.go('/member/home');
                         },
@@ -79,248 +127,362 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
 
               const SizedBox(height: 20),
 
-              // Greeting
+              // Greeting & Branch Identity
               const Text(
                 'Good morning,',
                 style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
               ),
-              const Text(
-                'Branch Manager',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+              Text(
+                KivoraService().currentUserName.isNotEmpty
+                    ? KivoraService().currentUserName
+                    : 'Branch Manager',
+                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
               ),
               Builder(
                 builder: (context) {
+                  if (_isLoadingBranch) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 4.0),
+                      child: Text('Loading branch details...', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
+                    );
+                  }
                   final branchId = KivoraService().currentBranchId;
                   final branch = branchId != null ? KivoraService().getBranchById(branchId) : null;
                   final displayBranch = branch != null ? '${branch.name} Branch' : 'No branch assigned';
-                  return Text(
-                    displayBranch,
-                    style: const TextStyle(fontSize: 12, color: Color(0xFF0D9488), fontWeight: FontWeight.w600),
+                  final inviteCode = branch?.inviteCode ?? '';
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        displayBranch,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: branch != null ? const Color(0xFF0D9488) : const Color(0xFF94A3B8),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (branch != null && inviteCode.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF0FDFA),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFF99F6E4)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.vpn_key_outlined, size: 13, color: Color(0xFF0D9488)),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Invite Code: $inviteCode',
+                                style: const TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF0F766E),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
                   );
                 },
               ),
 
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
 
-              // Total Members Card
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0F766E),
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF0F766E).withOpacity(0.2),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
+              // If No Branch Assigned, Show Actionable Setup Banner
+              Builder(
+                builder: (context) {
+                  final branchId = KivoraService().currentBranchId;
+                  final branch = branchId != null ? KivoraService().getBranchById(branchId) : null;
+                  if (branch != null) return const SizedBox.shrink();
+
+                  return Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 20),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0FDFA),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFF99F6E4)),
                     ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text(
-                          'Total Members',
-                          style: TextStyle(fontSize: 13, color: Color(0xFFCCFBF1), fontWeight: FontWeight.w500),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFCCFBF1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(Icons.add_business_outlined, color: Color(0xFF0D9488), size: 24),
                         ),
-                        SizedBox(height: 6),
-                        Text(
-                          '48',
-                          style: TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: Colors.white),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Establish Your Branch',
+                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                              ),
+                              const SizedBox(height: 2),
+                              const Text(
+                                'Create a branch to start registering members and tracking verified attendance.',
+                                style: TextStyle(fontSize: 12, color: Color(0xFF475569)),
+                              ),
+                              const SizedBox(height: 8),
+                              ElevatedButton(
+                                onPressed: () => context.push('/manager/branch/new'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF0D9488),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                  elevation: 0,
+                                ),
+                                child: const Text(
+                                  'Create Branch',
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
-                    Container(
-                      width: 52,
-                      height: 52,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: const Icon(Icons.people_outline, color: Colors.white, size: 28),
-                    ),
-                  ],
-                ),
+                  );
+                },
               ),
 
-              const SizedBox(height: 16),
-
-              // 2x2 Stats Grid
-              GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 14,
-                crossAxisSpacing: 14,
-                childAspectRatio: 1.4,
+              // KPI Summary Cards
+              Row(
                 children: [
-                  _buildStatTile(
-                    label: 'Pending Requests',
-                    value: '5',
-                    icon: Icons.pending_actions_outlined,
-                    color: const Color(0xFFF59E0B),
-                    onTap: () => context.push('/manager/requests/membership'),
+                  Expanded(
+                    child: _buildMetricCard(
+                      title: 'Registered Members',
+                      count: KivoraService().members.length.toString(),
+                      icon: Icons.people_outline,
+                      color: const Color(0xFF0D9488),
+                      bg: const Color(0xFFF0FDFA),
+                    ),
                   ),
-                  _buildStatTile(
-                    label: "Today's Attendance",
-                    value: '42',
-                    icon: Icons.check_circle_outline,
-                    color: const Color(0xFF10B981),
-                    onTap: () => context.push('/manager/attendance/logs'),
-                  ),
-                  _buildStatTile(
-                    label: 'Early Leave Requests',
-                    value: '2',
-                    icon: Icons.timer_outlined,
-                    color: const Color(0xFFEF4444),
-                    onTap: () => context.push('/manager/requests/early-leave'),
-                  ),
-                  _buildStatTile(
-                    label: 'Active Classes/Shifts',
-                    value: '6',
-                    icon: Icons.calendar_month_outlined,
-                    color: const Color(0xFF3B82F6),
-                    onTap: () => context.push('/manager/schedules'),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildMetricCard(
+                      title: 'Verified Logs',
+                      count: KivoraService().attendanceRecords.length.toString(),
+                      icon: Icons.verified_outlined,
+                      color: const Color(0xFF6366F1),
+                      bg: const Color(0xFFEEF2FF),
+                    ),
                   ),
                 ],
               ),
 
-              const SizedBox(height: 28),
+              const SizedBox(height: 12),
 
-              // Quick Actions
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildMetricCard(
+                      title: 'Pending Approvals',
+                      count: KivoraService().applications.where((a) => a.status == 'pending').length.toString(),
+                      icon: Icons.pending_actions_outlined,
+                      color: const Color(0xFFF59E0B),
+                      bg: const Color(0xFFFFFBEB),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildMetricCard(
+                      title: 'Active Branches',
+                      count: KivoraService().branches.length.toString(),
+                      icon: Icons.apartment,
+                      color: const Color(0xFF10B981),
+                      bg: const Color(0xFFECFDF5),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 24),
+
+              // Fast Action Operations
               const Text(
-                'Quick Actions',
+                'Manager Actions',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
               ),
               const SizedBox(height: 14),
 
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  _buildQuickAction(
-                    icon: Icons.qr_code,
-                    label: 'Create\nInvite Code',
-                    onTap: () => context.push('/manager/invites/generate'),
-                  ),
-                  _buildQuickAction(
-                    icon: Icons.people_outline,
-                    label: 'View\nMembers',
-                    onTap: () => context.push('/manager/members'),
-                  ),
-                  _buildQuickAction(
-                    icon: Icons.assignment_outlined,
-                    label: 'Attendance\nLogs',
-                    onTap: () => context.push('/manager/attendance/logs'),
-                  ),
-                  _buildQuickAction(
-                    icon: Icons.campaign_outlined,
-                    label: 'Send\nAnnouncement',
-                    onTap: () => context.push('/manager/announcements/new'),
-                  ),
-                ],
+              _buildActionTile(
+                icon: Icons.person_add_outlined,
+                title: 'Review Membership Applications',
+                subtitle: 'Approve or reject prospective branch members',
+                onTap: () => context.push('/manager/requests/membership'),
               ),
+              const SizedBox(height: 10),
+
+              _buildActionTile(
+                icon: Icons.badge_outlined,
+                title: 'ID Form Configuration',
+                subtitle: 'Customize membership fields and required ID uploads',
+                onTap: () {
+                  final branchId = KivoraService().currentBranchId;
+                  context.push('/manager/settings/id-form', extra: {'branchId': branchId});
+                },
+              ),
+              const SizedBox(height: 10),
+
+              _buildActionTile(
+                icon: Icons.qr_code_scanner_outlined,
+                title: 'Generate Branch Invite Code',
+                subtitle: 'Create onboarding codes for students or staff',
+                onTap: () {
+                  final branchId = KivoraService().currentBranchId;
+                  context.push('/manager/invites/generate', extra: {'branchId': branchId});
+                },
+              ),
+              const SizedBox(height: 10),
+
+              _buildActionTile(
+                icon: Icons.history_toggle_off,
+                title: 'Attendance Sign-In Logs',
+                subtitle: 'Review immutable timestamps and verification modalities',
+                onTap: () => context.push('/manager/attendance/logs'),
+              ),
+              const SizedBox(height: 10),
+
+              _buildActionTile(
+                icon: Icons.security,
+                title: 'Delegated Roles & Permissions',
+                subtitle: 'Manage administrative privileges and access levels',
+                onTap: () => context.push('/manager/settings/roles'),
+              ),
+              const SizedBox(height: 10),
+
+              _buildActionTile(
+                icon: Icons.domain,
+                title: 'Branch Workspace Details',
+                subtitle: 'View branch address, contact info, and settings',
+                onTap: () {
+                  final branchId = KivoraService().currentBranchId;
+                  context.push('/member/branch', extra: {'branchId': branchId});
+                },
+              ),
+
+              const SizedBox(height: 20),
             ],
           ),
         ),
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _bottomNavIndex,
-        type: BottomNavigationBarType.fixed,
         selectedItemColor: const Color(0xFF0D9488),
         unselectedItemColor: const Color(0xFF94A3B8),
+        type: BottomNavigationBarType.fixed,
         onTap: (index) {
           setState(() => _bottomNavIndex = index);
           if (index == 1) context.push('/manager/members');
           if (index == 2) context.push('/manager/attendance/logs');
-          if (index == 3) context.push('/manager/reports');
-          if (index == 4) context.push('/manager/settings/branch');
+          if (index == 3) context.push('/manager/settings/branch');
         },
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home_outlined), label: 'Home'),
+          BottomNavigationBarItem(icon: Icon(Icons.dashboard_outlined), label: 'Dashboard'),
           BottomNavigationBarItem(icon: Icon(Icons.people_outline), label: 'Members'),
-          BottomNavigationBarItem(icon: Icon(Icons.calendar_today_outlined), label: 'Attendance'),
-          BottomNavigationBarItem(icon: Icon(Icons.bar_chart_outlined), label: 'Reports'),
-          BottomNavigationBarItem(icon: Icon(Icons.more_horiz), label: 'More'),
+          BottomNavigationBarItem(icon: Icon(Icons.fact_check_outlined), label: 'Attendance'),
+          BottomNavigationBarItem(icon: Icon(Icons.settings_outlined), label: 'Settings'),
         ],
       ),
     );
   }
 
-  Widget _buildStatTile({
-    required String label,
-    required String value,
+  Widget _buildMetricCard({
+    required String title,
+    required String count,
     required IconData icon,
     required Color color,
-    required VoidCallback onTap,
+    required Color bg,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Text(
-                    label,
-                    style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                Icon(icon, color: color, size: 18),
-              ],
-            ),
-            Text(
-              value,
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: color),
-            ),
-          ],
-        ),
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10)),
+            child: Icon(icon, color: color, size: 20),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            count,
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            title,
+            style: const TextStyle(fontSize: 11.5, color: Color(0xFF64748B)),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildQuickAction({
+  Widget _buildActionTile({
     required IconData icon,
-    required String label,
+    required String title,
+    required String subtitle,
     required VoidCallback onTap,
   }) {
-    return GestureDetector(
+    return InkWell(
       onTap: onTap,
-      child: SizedBox(
-        width: 72,
-        child: Column(
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Row(
           children: [
             Container(
-              width: 52,
-              height: 52,
+              width: 38,
+              height: 38,
               decoration: BoxDecoration(
-                color: const Color(0xFFF0FDFA),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFCCFBF1)),
+                color: const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(icon, color: const Color(0xFF0D9488), size: 24),
+              child: Icon(icon, color: const Color(0xFF0D9488), size: 20),
             ),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
-              textAlign: TextAlign.center,
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                  ),
+                ],
+              ),
             ),
+            const Icon(Icons.arrow_forward_ios, size: 13, color: Color(0xFFCBD5E1)),
           ],
         ),
       ),

@@ -48,30 +48,48 @@ class _ManagerSignInScreenState extends State<ManagerSignInScreen> {
 
     setState(() => _isLoading = true);
 
-    if (AuthService().isLiveBackendConfigured) {
+    if (AuthService().isLiveMode) {
+      if (!AuthService().isLiveBackendConfigured) {
+        setState(() {
+          _isLoading = false;
+          _passError = AuthService().liveInitError ??
+              'Cannot sign in: Live Supabase backend is not configured. Please switch to Demo Mode to test without credentials.';
+        });
+        return;
+      }
+
       final res = await AuthService().signInWithPassword(email: email, password: pass);
       if (!mounted) return;
-      setState(() => _isLoading = false);
 
       if (!res.isSuccess) {
         setState(() {
+          _isLoading = false;
           _passError = res.errorMessage ?? 'Invalid manager credentials.';
         });
         return;
       }
 
-      // Look up the manager's actual branch; do not default to a demo branch
-      final managerBranch = KivoraService().branches
-          .cast<BranchModel?>()
-          .firstWhere((b) => b?.managerId == email, orElse: () => null);
+      // Resolve live user state directly from database tables
+      try {
+        await KivoraService().resolveLiveUserState();
+      } catch (e) {
+        if (!mounted) return;
+        setState(() {
+          _isLoading = false;
+          _passError = 'Unable to load manager assignment: $e';
+        });
+        return;
+      }
 
-      KivoraService().setCurrentUser(
-        email: email,
-        name: 'Branch Manager',
-        role: 'manager',
-        branchId: managerBranch?.id,
-      );
-      context.go('/manager/dashboard');
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+
+      final service = KivoraService();
+      if (service.isManagerOrAdmin) {
+        context.go('/manager/dashboard');
+      } else {
+        context.go('/branch/gateway');
+      }
       return;
     }
 
@@ -79,7 +97,6 @@ class _ManagerSignInScreenState extends State<ManagerSignInScreen> {
     Future.delayed(const Duration(milliseconds: 600), () {
       if (mounted) {
         setState(() => _isLoading = false);
-        // Look up the manager's actual branch; do not default to a demo branch
         final managerBranch = KivoraService().branches
             .cast<BranchModel?>()
             .firstWhere((b) => b?.managerId == email, orElse: () => null);

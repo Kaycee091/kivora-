@@ -32,17 +32,28 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _studentIdCtrl = TextEditingController(text: '');
   }
 
-  void _handleSave() {
+  void _handleSave() async {
     setState(() => _isSaving = true);
-    Future.delayed(const Duration(milliseconds: 600), () {
-      if (mounted) {
-        setState(() => _isSaving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile details updated successfully.')),
-        );
-        context.pop();
-      }
-    });
+    final name = _nameCtrl.text.trim();
+    final phone = _phoneCtrl.text.trim();
+    final studentId = _studentIdCtrl.text.trim();
+
+    await KivoraService().updateUserProfile(
+      name: name.isNotEmpty ? name : 'Member',
+      phone: phone,
+      studentId: studentId,
+    );
+
+    if (mounted) {
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Profile details updated successfully.'),
+          backgroundColor: Color(0xFF0D9488),
+        ),
+      );
+      context.pop();
+    }
   }
 
   @override

@@ -5,11 +5,13 @@ import '../../../core/services/kivora_service.dart';
 class BranchPreviewScreen extends StatefulWidget {
   final String? branchId;
   final String? inviteCode;
+  final String? inviteCodeId;
 
   const BranchPreviewScreen({
     super.key,
     this.branchId,
     this.inviteCode,
+    this.inviteCodeId,
   });
 
   @override
@@ -19,6 +21,7 @@ class BranchPreviewScreen extends StatefulWidget {
 class _BranchPreviewScreenState extends State<BranchPreviewScreen> {
   late final TextEditingController _codeController;
   BranchModel? _matchedBranch;
+  String? _inviteCodeId;
   String? _errorMessage;
   bool _isValidating = false;
 
@@ -26,11 +29,12 @@ class _BranchPreviewScreenState extends State<BranchPreviewScreen> {
   void initState() {
     super.initState();
     _codeController = TextEditingController(text: widget.inviteCode ?? '');
+    _inviteCodeId = widget.inviteCodeId;
 
     if (widget.branchId != null) {
       _matchedBranch = KivoraService().getBranchById(widget.branchId!);
     } else if (widget.inviteCode != null && widget.inviteCode!.isNotEmpty) {
-      _matchedBranch = KivoraService().validateInviteCode(widget.inviteCode!);
+      _matchedBranch = KivoraService().validateInviteCodeSync(widget.inviteCode!);
     } else {
       _matchedBranch = null;
     }
@@ -55,19 +59,23 @@ class _BranchPreviewScreenState extends State<BranchPreviewScreen> {
 
     setState(() => _isValidating = true);
 
-    Future.delayed(const Duration(milliseconds: 300), () {
+    Future.delayed(const Duration(milliseconds: 300), () async {
       if (!mounted) return;
-      final branch = KivoraService().validateInviteCode(code);
-      if (branch == null) {
+      final result = await KivoraService().validateInviteCodeDetailed(code);
+      if (!mounted) return;
+
+      if (!result.isValid || result.branch == null) {
         setState(() {
           _isValidating = false;
-          _errorMessage = 'Invalid or expired invitation code. Please check with your branch manager.';
+          _errorMessage = result.errorMessage ?? 'Invalid, inactive, or expired invitation code. Please check with your branch manager.';
           _matchedBranch = null;
+          _inviteCodeId = null;
         });
       } else {
         setState(() {
           _isValidating = false;
-          _matchedBranch = branch;
+          _matchedBranch = result.branch;
+          _inviteCodeId = result.inviteCodeId;
         });
       }
     });
@@ -81,6 +89,7 @@ class _BranchPreviewScreenState extends State<BranchPreviewScreen> {
         'branchId': _matchedBranch!.id,
         'branchName': _matchedBranch!.name,
         'inviteCode': _codeController.text.isNotEmpty ? _codeController.text : _matchedBranch!.inviteCode,
+        'inviteCodeId': _inviteCodeId ?? widget.inviteCodeId,
       },
     );
   }

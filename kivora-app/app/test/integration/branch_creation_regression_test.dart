@@ -3,10 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kivora_app/app.dart';
 import 'package:kivora_app/core/routing/app_router.dart';
+import 'package:kivora_app/core/services/auth_service.dart';
 import 'package:kivora_app/core/services/kivora_service.dart';
+import 'package:kivora_app/core/services/storage_service.dart';
 
 void main() {
   setUp(() {
+    StorageService.useMemoryOnlyForTests();
+    AuthService().switchToDemoMode();
     KivoraService().resetToDefaults();
     appRouter.go('/welcome');
   });
@@ -117,7 +121,7 @@ void main() {
 
       // No branch must have been added to KivoraService
       final branchCountBefore = KivoraService().branches.length;
-      expect(branchCountBefore, equals(3)); // only the 3 seed branches
+      expect(branchCountBefore, equals(4)); // 4 seed branches (Techverve primary + West, East, North)
     },
   );
 
@@ -152,8 +156,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Create Branch - Add Admin'), findsOneWidget);
 
-      // Go back to step 1
-      await tester.tap(find.byType(IconButton).first);
+      // Go back to step 1 using the admin screen back button
+      await tester.tap(find.byKey(const Key('create_branch_admin_back_btn')));
       await tester.pumpAndSettle();
       expect(find.text('Create Branch - Details'), findsOneWidget);
 

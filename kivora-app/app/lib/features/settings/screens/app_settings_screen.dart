@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/services/auth_service.dart';
 
 class AppSettingsScreen extends StatefulWidget {
   const AppSettingsScreen({super.key});
@@ -131,7 +132,12 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
               width: double.infinity,
               height: 48,
               child: TextButton.icon(
-                onPressed: () => context.go('/welcome'),
+                onPressed: () async {
+                  await AuthService().signOut();
+                  if (context.mounted) {
+                    context.go('/welcome');
+                  }
+                },
                 icon: const Icon(Icons.logout, color: Color(0xFFEF4444), size: 18),
                 label: const Text(
                   'Sign Out',

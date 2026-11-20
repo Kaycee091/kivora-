@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/services/kivora_service.dart';
 
 class ManagerMembersListScreen extends StatefulWidget {
   const ManagerMembersListScreen({super.key});
@@ -11,22 +12,54 @@ class ManagerMembersListScreen extends StatefulWidget {
 class _ManagerMembersListScreenState extends State<ManagerMembersListScreen> {
   int _selectedRoleIndex = 0; // 0: All, 1: Students, 2: Teachers, 3: Staff
   final TextEditingController _searchCtrl = TextEditingController();
+  bool _isLoading = false;
 
-  final List<Map<String, String>> _members = [
-    {'name': 'Sarah Johnson', 'role': 'Student', 'status': 'Active'},
-    {'name': 'Michael Brown', 'role': 'Teacher', 'status': 'Active'},
-    {'name': 'Emily Davis', 'role': 'Staff', 'status': 'Pending'},
-    {'name': 'James Wilson', 'role': 'Student', 'status': 'Active'},
-    {'name': 'Olivia Martinez', 'role': 'Teacher', 'status': 'Active'},
-    {'name': 'Daniel Taylor', 'role': 'Staff', 'status': 'Active'},
-  ];
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMembers();
+  }
+
+  Future<void> _loadMembers() async {
+    final branchId = KivoraService().currentBranchId;
+    if (branchId == null) {
+      setState(() => _errorMessage = 'No active session. Please sign in.');
+      return;
+    }
+    setState(() { _isLoading = true; _errorMessage = null; });
+    try {
+      await KivoraService().fetchBranchMembers(branchId);
+    } catch (e) {
+      if (mounted) setState(() => _errorMessage = 'Failed to load members. Tap to retry.');
+    }
+    if (mounted) setState(() => _isLoading = false);
+  }
+
+  List<Map<String, String>> get _effectiveMembers {
+    final svcMembers = KivoraService().members;
+    return svcMembers.map((m) => {
+      'id': m.memberId,
+      'name': m.name,
+      'role': m.role,
+      'status': m.status,
+    }).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final filtered = _members.where((m) {
-      if (_selectedRoleIndex == 1) return m['role'] == 'Student';
-      if (_selectedRoleIndex == 2) return m['role'] == 'Teacher';
-      if (_selectedRoleIndex == 3) return m['role'] == 'Staff';
+    final search = _searchCtrl.text.trim().toLowerCase();
+    final all = _effectiveMembers;
+
+    final filtered = all.where((m) {
+      if (search.isNotEmpty && !m['name']!.toLowerCase().contains(search)) {
+        return false;
+      }
+      final role = (m['role'] ?? '').toLowerCase();
+      if (_selectedRoleIndex == 1) return role.contains('student') || role.contains('member');
+      if (_selectedRoleIndex == 2) return role.contains('teacher') || role.contains('admin');
+      if (_selectedRoleIndex == 3) return role.contains('staff') || role.contains('manager');
       return true;
     }).toList();
 
@@ -89,11 +122,55 @@ class _ManagerMembersListScreenState extends State<ManagerMembersListScreen> {
 
           // Member List
           Expanded(
-            child: ListView.separated(
-              padding: const EdgeInsets.all(20),
-              itemCount: filtered.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator(color: Color(0xFF0D9488)))
+                : _errorMessage != null
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(32.0),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.wifi_off_outlined, size: 48, color: Color(0xFF94A3B8)),
+                              const SizedBox(height: 12),
+                              Text(_errorMessage!, style: const TextStyle(fontSize: 14, color: Color(0xFF64748B)), textAlign: TextAlign.center),
+                              const SizedBox(height: 16),
+                              ElevatedButton(onPressed: _loadMembers, style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0D9488)), child: const Text('Retry', style: TextStyle(color: Colors.white))),
+                            ],
+                          ),
+                        ),
+                      )
+                    : filtered.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFF0FDFA),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.people_outline, size: 48, color: Color(0xFF0D9488)),
+                            ),
+                            const SizedBox(height: 14),
+                            const Text(
+                              'No Members Found',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Approved members will appear in this branch roster.',
+                              style: TextStyle(fontSize: 12.5, color: Color(0xFF64748B)),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.all(20),
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (context, index) {
                 final m = filtered[index];
                 final isPending = m['status'] == 'Pending';
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/services/kivora_service.dart';
 
 class GpsVerificationScreen extends StatefulWidget {
   const GpsVerificationScreen({super.key});
@@ -59,7 +60,7 @@ class _GpsVerificationScreenState extends State<GpsVerificationScreen> {
               _buildCheckItem(
                 icon: Icons.location_on,
                 title: 'Location (GPS)',
-                subtitle: _step > 0 ? 'Location verified (Within West Campus)' : 'Checking coordinates against geofence...',
+                subtitle: _step > 0 ? 'Location verified (Within ${KivoraService().currentBranch?.name ?? "Branch"})' : 'Checking coordinates against geofence...',
                 isDone: _step > 0,
                 isInProgress: _step == 0,
               ),

@@ -23,6 +23,18 @@ class _CreateBranchAdminScreenState extends State<CreateBranchAdminScreen> {
   bool _isCreating = false;
 
   @override
+  void initState() {
+    super.initState();
+    final draft = KivoraService().branchDraft;
+    if (draft != null) {
+      if (draft.adminName.isNotEmpty) _nameCtrl.text = draft.adminName;
+      if (draft.adminEmail.isNotEmpty) _emailCtrl.text = draft.adminEmail;
+      if (draft.adminPhone.isNotEmpty) _phoneCtrl.text = draft.adminPhone;
+      if (draft.adminRole.isNotEmpty) _role = draft.adminRole;
+    }
+  }
+
+  @override
   void dispose() {
     _nameCtrl.dispose();
     _emailCtrl.dispose();
@@ -64,17 +76,19 @@ class _CreateBranchAdminScreenState extends State<CreateBranchAdminScreen> {
   }
 
   Future<void> _handleCreate() async {
+    if (_isCreating) return;
     if (!_validate()) return;
 
     setState(() => _isCreating = true);
 
-    final branchName = widget.branchData?['branchName'] ?? 'New Branch';
-    final orgType = widget.branchData?['orgType'] ?? 'School';
-    final address = widget.branchData?['address'] ?? 'Main Campus';
+    final draft = KivoraService().branchDraft;
+    final branchName = widget.branchData?['branchName'] ?? draft?.name ?? '';
+    final orgType = widget.branchData?['orgType'] ?? draft?.organizationType ?? 'School';
+    final address = widget.branchData?['address'] ?? draft?.address ?? '';
     final contactPhone = (widget.branchData?['contactPhone'] as String?)?.isNotEmpty == true
         ? widget.branchData!['contactPhone']
-        : _phoneCtrl.text.trim();
-    final description = widget.branchData?['description'] ?? '';
+        : (_phoneCtrl.text.trim().isNotEmpty ? _phoneCtrl.text.trim() : (draft?.contactPhone ?? ''));
+    final description = widget.branchData?['description'] ?? draft?.description ?? '';
     final adminEmail = _emailCtrl.text.trim();
     final adminName = _nameCtrl.text.trim();
 
@@ -117,6 +131,12 @@ class _CreateBranchAdminScreenState extends State<CreateBranchAdminScreen> {
         SnackBar(
           content: Text('Failed to save branch: $e'),
           backgroundColor: const Color(0xFFEF4444),
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'Retry',
+            textColor: Colors.white,
+            onPressed: _handleCreate,
+          ),
         ),
       );
     }
@@ -130,8 +150,22 @@ class _CreateBranchAdminScreenState extends State<CreateBranchAdminScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
+          key: const Key('create_branch_admin_back_btn'),
           icon: const Icon(Icons.arrow_back, color: Color(0xFF1E293B)),
-          onPressed: () => context.pop(),
+          onPressed: () {
+            // Save admin inputs before going back so they survive Back navigation
+            KivoraService().updateBranchDraftAdmin(
+              adminName: _nameCtrl.text.trim(),
+              adminEmail: _emailCtrl.text.trim(),
+              adminPhone: _phoneCtrl.text.trim(),
+              adminRole: _role,
+            );
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/manager/branch/new');
+            }
+          },
         ),
         title: const Text(
           'Create Branch - Add Admin',
@@ -169,8 +203,14 @@ class _CreateBranchAdminScreenState extends State<CreateBranchAdminScreen> {
                   fillColor: const Color(0xFFF8FAFC),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
                 ),
-                onChanged: (_) {
+                onChanged: (val) {
                   if (_nameError != null) setState(() => _nameError = null);
+                  KivoraService().updateBranchDraftAdmin(
+                    adminName: val.trim(),
+                    adminEmail: _emailCtrl.text.trim(),
+                    adminPhone: _phoneCtrl.text.trim(),
+                    adminRole: _role,
+                  );
                 },
               ),
 
@@ -190,8 +230,14 @@ class _CreateBranchAdminScreenState extends State<CreateBranchAdminScreen> {
                   fillColor: const Color(0xFFF8FAFC),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
                 ),
-                onChanged: (_) {
+                onChanged: (val) {
                   if (_emailError != null) setState(() => _emailError = null);
+                  KivoraService().updateBranchDraftAdmin(
+                    adminName: _nameCtrl.text.trim(),
+                    adminEmail: val.trim(),
+                    adminPhone: _phoneCtrl.text.trim(),
+                    adminRole: _role,
+                  );
                 },
               ),
 
@@ -211,8 +257,14 @@ class _CreateBranchAdminScreenState extends State<CreateBranchAdminScreen> {
                   fillColor: const Color(0xFFF8FAFC),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
                 ),
-                onChanged: (_) {
+                onChanged: (val) {
                   if (_phoneError != null) setState(() => _phoneError = null);
+                  KivoraService().updateBranchDraftAdmin(
+                    adminName: _nameCtrl.text.trim(),
+                    adminEmail: _emailCtrl.text.trim(),
+                    adminPhone: val.trim(),
+                    adminRole: _role,
+                  );
                 },
               ),
 
@@ -237,7 +289,15 @@ class _CreateBranchAdminScreenState extends State<CreateBranchAdminScreen> {
                       DropdownMenuItem(value: 'Branch Admin', child: Text('Branch Admin')),
                     ],
                     onChanged: (val) {
-                      if (val != null) setState(() => _role = val);
+                      if (val != null) {
+                        setState(() => _role = val);
+                        KivoraService().updateBranchDraftAdmin(
+                          adminName: _nameCtrl.text.trim(),
+                          adminEmail: _emailCtrl.text.trim(),
+                          adminPhone: _phoneCtrl.text.trim(),
+                          adminRole: val,
+                        );
+                      }
                     },
                   ),
                 ),

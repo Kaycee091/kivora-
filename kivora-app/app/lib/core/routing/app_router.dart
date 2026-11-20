@@ -98,26 +98,34 @@ import '../../features/manager/screens/manager_extra_screens.dart';
 
 // ─────────────────────────────────────────────────────────────────
 final GoRouter appRouter = GoRouter(
-  initialLocation: '/welcome',
+  initialLocation: '/',
   refreshListenable: KivoraService(),
   redirect: (BuildContext context, GoRouterState state) {
     final path = state.uri.path;
     final kivoraService = KivoraService();
 
+    // 0. Handle authentication loading before making routing decisions.
+    // Prevents race conditions during startup or page refresh from triggering premature redirects.
+    if (kivoraService.isAuthLoading) {
+      return null;
+    }
+
     final isAuth = kivoraService.isAuthenticated;
 
     // Public auth and landing routes
-    final isPublic = path == '/welcome' ||
-        path == '/auth/sign-in' ||
+    final isWelcome = path == '/welcome';
+    final isSignInOrRegister = path == '/auth/sign-in' ||
         path == '/sign-in' ||
         path == '/auth/register' ||
         path == '/register' ||
         path == '/manager/sign-in';
 
+    final isPublic = isWelcome || isSignInOrRegister;
     final isVerify = path == '/auth/verify-email' || path == '/manager/verify-email';
 
     // 1. Unauthenticated users cannot access protected routes
     if (!isAuth) {
+      if (path == '/') return '/welcome';
       if (isPublic || isVerify) return null;
       return path.startsWith('/manager') ? '/manager/sign-in' : '/welcome';
     }
@@ -129,37 +137,48 @@ final GoRouter appRouter = GoRouter(
       return '/auth/verify-email?email=$emailParam';
     }
 
-    // If an authenticated user lands on sign-in, register, or welcome, redirect appropriately
-    if (isPublic) {
-      if (kivoraService.currentRole == 'manager' || kivoraService.currentRole == 'admin') {
+    // 3. Welcome route is intentionally accessible even with an existing session.
+    // Do not automatically redirect a user away from /welcome merely because they have an active session.
+    if (isWelcome) {
+      return null;
+    }
+
+    // 4. Root path ('/') or sign-in / registration routes for authenticated users:
+    // Route users according to their actual account status and active branch assignment.
+    if (path == '/' || isSignInOrRegister) {
+      if (kivoraService.isManagerOrAdmin) {
         return '/manager/dashboard';
       }
-      if (kivoraService.membershipStatus == 'pending') {
+      if (kivoraService.membershipStatus == 'pending' || kivoraService.membershipStatus == 'rejected') {
         return '/branch/status';
       }
-      if (kivoraService.currentRole == 'member' && kivoraService.membershipStatus == 'approved') {
+      if (kivoraService.currentRole == 'member' &&
+          kivoraService.membershipStatus == 'approved' &&
+          kivoraService.currentBranchId != null) {
         return '/member/home';
       }
       return '/branch/gateway';
     }
 
-    // 3. Manager routes authorization:
+    // 5. Manager routes authorization:
     final isBranchCreation = path.startsWith('/manager/branch/new') || path == '/manager/branch-gateway';
     if (path.startsWith('/manager') && !isVerify && !isBranchCreation) {
-      if (kivoraService.currentRole != 'manager' && kivoraService.currentRole != 'admin') {
-        return '/member/home';
+      if (!kivoraService.isManagerOrAdmin) {
+        return (kivoraService.membershipStatus == 'approved' && kivoraService.currentBranchId != null)
+            ? '/member/home'
+            : '/branch/gateway';
       }
     }
 
-    // 4. Member routes authorization:
+    // 6. Member routes authorization:
     if (path.startsWith('/member')) {
-      if (kivoraService.membershipStatus == 'pending') {
+      if (kivoraService.membershipStatus == 'pending' || kivoraService.membershipStatus == 'rejected') {
         return '/branch/status';
       }
-      if (kivoraService.membershipStatus == 'rejected') {
-        return '/branch/status';
-      }
-      if ((kivoraService.currentRole == 'guest' || kivoraService.currentBranchId == null) && path != '/member/branch') {
+      if ((kivoraService.currentRole == 'guest' ||
+              kivoraService.currentBranchId == null ||
+              kivoraService.membershipStatus != 'approved') &&
+          path != '/member/branch') {
         return '/branch/gateway';
       }
     }
@@ -167,7 +186,8 @@ final GoRouter appRouter = GoRouter(
     return null;
   },
   routes: [
-    // ── Splash / Onboarding ──────────────────────────────────────
+    // ── Root / Welcome / Onboarding ─────────────────────────────
+    GoRoute(path: '/', builder: (_, __) => const WelcomeScreen()),
     GoRoute(path: '/welcome', builder: (_, __) => const WelcomeScreen()),
 
     // ── Member Auth ──────────────────────────────────────────────
@@ -200,14 +220,36 @@ final GoRouter appRouter = GoRouter(
         return BranchPreviewScreen(
           branchId: extra?['branchId'] as String? ?? state.uri.queryParameters['branchId'],
           inviteCode: extra?['inviteCode'] as String? ?? state.uri.queryParameters['inviteCode'],
+          inviteCodeId: extra?['inviteCodeId'] as String? ?? state.uri.queryParameters['inviteCodeId'],
         );
       },
     ),
     GoRoute(path: '/branch/join', builder: (_, __) => const RequestToJoinScreen()),
-    GoRoute(path: '/branch/status', builder: (_, __) => const JoinRequestStatusScreen()),
+    GoRoute(
+      path: '/branch/status',
+      builder: (_, state) {
+        final extra = state.extra as Map<String, dynamic>?;
+        return JoinRequestStatusScreen(
+          branchId: extra?['branchId'] as String?,
+          branchName: extra?['branchName'] as String?,
+          userName: extra?['userName'] as String?,
+        );
+      },
+    ),
 
     // ── Profile Setup (M06) ──────────────────────────────────────
-    GoRoute(path: '/profile/setup', builder: (_, __) => const ProfileSetupScreen()),
+    GoRoute(
+      path: '/profile/setup',
+      builder: (_, state) {
+        final extra = state.extra as Map<String, dynamic>?;
+        return ProfileSetupScreen(
+          branchId: extra?['branchId'] as String?,
+          branchName: extra?['branchName'] as String?,
+          inviteCode: extra?['inviteCode'] as String?,
+          inviteCodeId: extra?['inviteCodeId'] as String? ?? state.uri.queryParameters['inviteCodeId'],
+        );
+      },
+    ),
 
     // ── Member Home (M09) ────────────────────────────────────────
     GoRoute(path: '/member/home', builder: (_, __) => const MemberHomeScreen()),
@@ -322,7 +364,14 @@ final GoRouter appRouter = GoRouter(
     GoRoute(path: '/manager/members/:id', builder: (_, __) => const ManagerMemberDetailScreen()),
     GoRoute(path: '/manager/members/:id/documents', builder: (_, __) => const DocumentReviewScreen()),
     GoRoute(path: '/manager/requests/membership', builder: (_, __) => const MembershipApprovalScreen()),
-    GoRoute(path: '/manager/invites/generate', builder: (_, __) => const GenerateInviteCodeScreen()),
+    GoRoute(
+      path: '/manager/invites/generate',
+      builder: (_, state) {
+        final extra = state.extra as Map<String, dynamic>?;
+        final branchId = extra?['branchId'] as String? ?? state.uri.queryParameters['branchId'];
+        return GenerateInviteCodeScreen(branchId: branchId);
+      },
+    ),
 
     // ── Manager Attendance (BM13–BM14, BM24) ─────────────────────
     GoRoute(path: '/manager/attendance/logs', builder: (_, __) => const ManagerAttendanceLogsScreen()),
@@ -345,7 +394,9 @@ final GoRouter appRouter = GoRouter(
       path: '/manager/settings/id-form',
       builder: (_, state) {
         final extra = state.extra as Map<String, dynamic>? ?? {};
-        return IdentificationFormSettingsScreen(branchId: extra['branchId'] ?? 'branch-west');
+        return IdentificationFormSettingsScreen(
+          branchId: extra['branchId'] as String? ?? KivoraService().currentBranchId,
+        );
       },
     ),
     GoRoute(path: '/manager/settings/roles', builder: (_, __) => const RolePermissionsScreen()),

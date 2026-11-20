@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/services/auth_service.dart';
+import '../../../core/services/kivora_service.dart';
 
 class ManagerAuditHistoryScreen extends StatefulWidget {
   const ManagerAuditHistoryScreen({super.key});
@@ -10,37 +13,80 @@ class ManagerAuditHistoryScreen extends StatefulWidget {
 
 class _ManagerAuditHistoryScreenState extends State<ManagerAuditHistoryScreen> {
   int _selectedFilter = 0; // 0: All, 1: Admins, 2: Members
+  bool _isLoading = false;
 
-  final List<Map<String, dynamic>> _audit = [
-    {
-      'title': 'Settings updated',
-      'detail': 'By Alex Johnson • Apr 16, 2025',
-      'icon': Icons.tune,
-    },
-    {
-      'title': 'Member approved',
-      'detail': 'By Sarah Wilson • Apr 15, 2025',
-      'icon': Icons.person_add_alt_1_outlined,
-    },
-    {
-      'title': 'Role changed',
-      'detail': 'By Alex Johnson • Apr 14, 2025',
-      'icon': Icons.vpn_key_outlined,
-    },
-    {
-      'title': 'Code generated',
-      'detail': 'By Sarah Wilson • Apr 13, 2025',
-      'icon': Icons.qr_code,
-    },
-    {
-      'title': 'Message sent',
-      'detail': 'By Alex Johnson • Apr 12, 2025',
-      'icon': Icons.chat_bubble_outline,
-    },
-  ];
+  final List<Map<String, dynamic>> _audit = [];
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLiveAuditLogs();
+  }
+
+  Future<void> _loadLiveAuditLogs() async {
+    final branchId = KivoraService().currentBranchId;
+    if (branchId == null) return;
+
+    setState(() => _isLoading = true);
+    try {
+      final client = Supabase.instance.client;
+      final res = await client
+          .from('audit_logs')
+          .select('id, action, target_entity, changes, created_at, profiles(full_name)')
+          .eq('branch_id', branchId)
+          .order('created_at', ascending: false);
+
+      final list = (res as List).map((row) {
+        final profile = row['profiles'] as Map<String, dynamic>?;
+        final actorName = profile?['full_name'] as String? ?? 'System';
+        final action = row['action'] as String? ?? 'Action';
+        final entity = row['target_entity'] as String? ?? '';
+        final createdAt = DateTime.tryParse(row['created_at']?.toString() ?? '');
+        final dateStr = createdAt != null
+            ? '${createdAt.year}-${createdAt.month.toString().padLeft(2, '0')}-${createdAt.day.toString().padLeft(2, '0')}'
+            : 'Recent';
+
+        return {
+          'id': row['id']?.toString() ?? '',
+          'title': '$action ${entity.isNotEmpty ? "($entity)" : ""}',
+          'detail': 'By $actorName • $dateStr',
+          'category': action.toLowerCase().contains('member') ? 'member' : 'admin',
+          'icon': _getIconForAction(action),
+        };
+      }).toList();
+
+      if (mounted) {
+        setState(() {
+          _audit.clear();
+          _audit.addAll(list);
+        });
+      }
+    } catch (e) {
+      debugPrint('[Kivora] Error loading audit logs: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  IconData _getIconForAction(String action) {
+    final a = action.toLowerCase();
+    if (a.contains('member') || a.contains('approval')) return Icons.person_add_alt_1_outlined;
+    if (a.contains('role') || a.contains('permission')) return Icons.vpn_key_outlined;
+    if (a.contains('code') || a.contains('invite')) return Icons.qr_code;
+    if (a.contains('message') || a.contains('announcement')) return Icons.campaign_outlined;
+    if (a.contains('attendance') || a.contains('check')) return Icons.fingerprint;
+    return Icons.tune;
+  }
 
   @override
   Widget build(BuildContext context) {
+    final filtered = _audit.where((item) {
+      if (_selectedFilter == 1) return item['category'] == 'admin';
+      if (_selectedFilter == 2) return item['category'] == 'member';
+      return true;
+    }).toList();
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
@@ -76,52 +122,77 @@ class _ManagerAuditHistoryScreenState extends State<ManagerAuditHistoryScreen> {
 
           // Audit Stream
           Expanded(
-            child: ListView.separated(
-              padding: const EdgeInsets.all(20),
-              itemCount: _audit.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final item = _audit[index];
-                return Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF0FDFA),
-                          borderRadius: BorderRadius.circular(12),
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator(color: Color(0xFF0D9488)))
+                : filtered.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(32.0),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: const [
+                              Icon(Icons.history_toggle_off, size: 48, color: Color(0xFF94A3B8)),
+                              SizedBox(height: 12),
+                              Text(
+                                'No audit events recorded',
+                                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
+                              ),
+                              SizedBox(height: 4),
+                              Text(
+                                'Administrative decisions, role changes, and member approvals will appear here.',
+                                style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
                         ),
-                        child: Icon(item['icon'] as IconData, color: const Color(0xFF0D9488), size: 22),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              item['title'] as String,
-                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.all(20),
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (context, index) {
+                          final item = filtered[index];
+                          return Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: const Color(0xFFE2E8F0)),
                             ),
-                            const SizedBox(height: 2),
-                            Text(
-                              item['detail'] as String,
-                              style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF0FDFA),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Icon(item['icon'] as IconData, color: const Color(0xFF0D9488), size: 22),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        item['title'] as String,
+                                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        item['detail'] as String,
+                                        style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
+                          );
+                        },
                       ),
-                    ],
-                  ),
-                );
-              },
-            ),
           ),
         ],
       ),

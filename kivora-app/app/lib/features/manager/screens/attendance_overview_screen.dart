@@ -1,11 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
+import '../../../core/services/kivora_service.dart';
 
 class AttendanceOverviewScreen extends StatelessWidget {
   const AttendanceOverviewScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final kivora = KivoraService();
+    final activeBranchId = kivora.currentBranchId;
+    final branchRecords = kivora.attendanceRecords.where((r) => activeBranchId == null || r.branchId == activeBranchId).toList();
+    final now = DateTime.now();
+    final todayRecords = branchRecords.where((r) => r.signInTime.year == now.year && r.signInTime.month == now.month && r.signInTime.day == now.day).toList();
+    final presentCount = todayRecords.length;
+    final totalMembers = kivora.members.where((m) => activeBranchId == null || m.branchId == activeBranchId).length;
+    final absentCount = (totalMembers - presentCount).clamp(0, totalMembers);
+    final lateCount = todayRecords.where((r) => r.signInTime.hour > 9).length;
+    final double attendancePct = totalMembers > 0 ? (presentCount / totalMembers).clamp(0.0, 1.0) : 0.0;
+    final String pctStr = '${(attendancePct * 100).toStringAsFixed(0)}%';
+    final todayStr = DateFormat('MMM d, yyyy').format(now);
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
@@ -36,9 +51,9 @@ class AttendanceOverviewScreen extends StatelessWidget {
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: const [
-                  Text('Apr 16, 2025', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
-                  Icon(Icons.calendar_month, color: Color(0xFF0D9488), size: 20),
+                children: [
+                  Text(todayStr, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                  const Icon(Icons.calendar_month, color: Color(0xFF0D9488), size: 20),
                 ],
               ),
             ),
@@ -65,13 +80,13 @@ class AttendanceOverviewScreen extends StatelessWidget {
                           width: 100,
                           height: 100,
                           child: CircularProgressIndicator(
-                            value: 0.87,
+                            value: attendancePct > 0 ? attendancePct : 0.001,
                             strokeWidth: 10,
                             backgroundColor: const Color(0xFFE2E8F0),
                             color: const Color(0xFF0D9488),
                           ),
                         ),
-                        const Text('87%', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+                        Text(pctStr, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
                       ],
                     ),
                   ),
@@ -80,11 +95,11 @@ class AttendanceOverviewScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _buildStat('42', 'Present', const Color(0xFF10B981)),
+                        _buildStat(presentCount.toString(), 'Present', const Color(0xFF10B981)),
                         const SizedBox(height: 8),
-                        _buildStat('5', 'Late', const Color(0xFFF59E0B)),
+                        _buildStat(lateCount.toString(), 'Late', const Color(0xFFF59E0B)),
                         const SizedBox(height: 8),
-                        _buildStat('3', 'Absent', const Color(0xFFEF4444)),
+                        _buildStat(absentCount.toString(), 'Absent', const Color(0xFFEF4444)),
                       ],
                     ),
                   ),
@@ -95,7 +110,7 @@ class AttendanceOverviewScreen extends StatelessWidget {
             const SizedBox(height: 28),
 
             const Text(
-              'By Role',
+              'Active Members Breakdown',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
             ),
             const SizedBox(height: 14),
@@ -110,11 +125,7 @@ class AttendanceOverviewScreen extends StatelessWidget {
               ),
               child: Column(
                 children: [
-                  _buildRoleBar('Students', '24/28', '86%', 0.86),
-                  const SizedBox(height: 16),
-                  _buildRoleBar('Teachers', '12/14', '86%', 0.86),
-                  const SizedBox(height: 16),
-                  _buildRoleBar('Staff', '6/8', '75%', 0.75),
+                  _buildRoleBar('All Members', '$presentCount/$totalMembers', pctStr, attendancePct),
                 ],
               ),
             ),

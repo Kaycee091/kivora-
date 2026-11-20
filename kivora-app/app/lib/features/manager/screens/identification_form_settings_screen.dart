@@ -3,8 +3,8 @@ import 'package:go_router/go_router.dart';
 import '../../../core/services/kivora_service.dart';
 
 class IdentificationFormSettingsScreen extends StatefulWidget {
-  final String branchId;
-  const IdentificationFormSettingsScreen({super.key, this.branchId = 'branch-west'});
+  final String? branchId;
+  const IdentificationFormSettingsScreen({super.key, this.branchId});
 
   @override
   State<IdentificationFormSettingsScreen> createState() => _IdentificationFormSettingsScreenState();
@@ -18,7 +18,7 @@ class _IdentificationFormSettingsScreenState extends State<IdentificationFormSet
   @override
   void initState() {
     super.initState();
-    _branchId = widget.branchId;
+    _branchId = widget.branchId ?? KivoraService().currentBranchId ?? '';
     _loadFields();
   }
 

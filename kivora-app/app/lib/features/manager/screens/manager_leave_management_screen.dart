@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/services/auth_service.dart';
+import '../../../core/services/kivora_service.dart';
 
 class ManagerLeaveManagementScreen extends StatefulWidget {
   const ManagerLeaveManagementScreen({super.key});
@@ -13,89 +16,166 @@ class _ManagerLeaveManagementScreenState
     extends State<ManagerLeaveManagementScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  bool _isLoading = false;
+  String? _errorMessage;
 
-  final List<Map<String, dynamic>> _pendingLeaves = [
-    {
-      'name': 'Amara Osei',
-      'role': 'Student',
-      'avatar': 'AO',
-      'type': 'Sick Leave',
-      'dates': 'Oct 23 – Oct 24, 2026',
-      'days': '2 days',
-      'reason': 'Feeling unwell, will see a doctor tomorrow.',
-      'submittedAgo': '2 hours ago',
-      'color': Color(0xFFEF4444),
-    },
-    {
-      'name': 'Kwame Asante',
-      'role': 'Teacher',
-      'avatar': 'KA',
-      'type': 'Personal Leave',
-      'dates': 'Oct 25, 2026',
-      'days': '1 day',
-      'reason': 'Family commitment that cannot be rescheduled.',
-      'submittedAgo': '5 hours ago',
-      'color': Color(0xFF8B5CF6),
-    },
-    {
-      'name': 'Fatima Al-Hassan',
-      'role': 'Staff',
-      'avatar': 'FA',
-      'type': 'Annual Leave',
-      'dates': 'Oct 27 – Oct 30, 2026',
-      'days': '4 days',
-      'reason': 'Pre-planned vacation with family.',
-      'submittedAgo': '1 day ago',
-      'color': Color(0xFF3B82F6),
-    },
-  ];
-
-  final List<Map<String, dynamic>> _historyLeaves = [
-    {
-      'name': 'Kofi Mensah',
-      'role': 'Student',
-      'avatar': 'KM',
-      'type': 'Sick Leave',
-      'dates': 'Oct 18 – Oct 19, 2026',
-      'days': '2 days',
-      'status': 'Approved',
-      'statusColor': Color(0xFF10B981),
-      'decidedBy': 'Branch Manager',
-    },
-    {
-      'name': 'Ama Boateng',
-      'role': 'Teacher',
-      'avatar': 'AB',
-      'type': 'Emergency Leave',
-      'dates': 'Oct 15, 2026',
-      'days': '1 day',
-      'status': 'Rejected',
-      'statusColor': Color(0xFFEF4444),
-      'decidedBy': 'Branch Manager',
-    },
-    {
-      'name': 'Yaw Darko',
-      'role': 'Staff',
-      'avatar': 'YD',
-      'type': 'Annual Leave',
-      'dates': 'Oct 10 – Oct 14, 2026',
-      'days': '5 days',
-      'status': 'Approved',
-      'statusColor': Color(0xFF10B981),
-      'decidedBy': 'Branch Manager',
-    },
-  ];
+  List<Map<String, dynamic>> _pendingLeaves = [];
+  List<Map<String, dynamic>> _historyLeaves = [];
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _loadLiveLeaveRequests();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadLiveLeaveRequests() async {
+    final branchId = KivoraService().currentBranchId;
+    if (branchId == null) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'No active branch selected. Please select a branch to view leave requests.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final client = Supabase.instance.client;
+      final res = await client
+          .from('leave_requests')
+          .select('id, user_id, leave_type, reason, status, start_date, end_date, created_at, reviewed_at, profiles(full_name, role)')
+          .eq('branch_id', branchId)
+          .order('created_at', ascending: false);
+
+      final List<Map<String, dynamic>> pending = [];
+      final List<Map<String, dynamic>> history = [];
+
+      for (final row in (res as List)) {
+        final profile = row['profiles'] as Map<String, dynamic>?;
+        final name = profile?['full_name'] as String? ?? 'Member';
+        final role = profile?['role'] as String? ?? 'Student';
+        final initials = name.split(' ').map((s) => s.isNotEmpty ? s[0] : '').take(2).join('').toUpperCase();
+        final typeRaw = row['leave_type']?.toString() ?? 'other';
+        final typeFormatted = _formatLeaveType(typeRaw);
+        final color = _getLeaveColor(typeRaw);
+        final startDate = DateTime.tryParse(row['start_date']?.toString() ?? '');
+        final endDate = DateTime.tryParse(row['end_date']?.toString() ?? '');
+        final datesStr = _formatDateRange(startDate, endDate);
+        final daysStr = _calculateDays(startDate, endDate);
+        final createdAt = DateTime.tryParse(row['created_at']?.toString() ?? '');
+        final submittedAgo = _formatSubmittedAgo(createdAt);
+        final status = (row['status']?.toString() ?? 'pending').toLowerCase();
+
+        final item = {
+          'id': row['id']?.toString() ?? '',
+          'name': name,
+          'role': role,
+          'avatar': initials.isEmpty ? 'M' : initials,
+          'type': typeFormatted,
+          'dates': datesStr,
+          'days': daysStr,
+          'reason': row['reason']?.toString() ?? 'No reason provided',
+          'submittedAgo': submittedAgo,
+          'color': color,
+          'status': status == 'approved' ? 'Approved' : (status == 'rejected' ? 'Rejected' : 'Pending'),
+          'statusColor': status == 'approved' ? const Color(0xFF10B981) : (status == 'rejected' ? const Color(0xFFEF4444) : const Color(0xFFF59E0B)),
+          'decidedBy': 'Branch Manager',
+        };
+
+        if (status == 'pending') {
+          pending.add(item);
+        } else {
+          history.add(item);
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _pendingLeaves = pending;
+          _historyLeaves = history;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('[Kivora] Error loading leave management requests: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Failed to load leave requests from database: $e';
+        });
+      }
+    }
+  }
+
+  String _formatLeaveType(String raw) {
+    switch (raw.toLowerCase()) {
+      case 'annual':
+        return 'Annual Leave';
+      case 'sick':
+        return 'Sick Leave';
+      case 'casual':
+        return 'Casual Leave';
+      case 'early_departure':
+        return 'Early Departure';
+      default:
+        return 'Personal Leave';
+    }
+  }
+
+  Color _getLeaveColor(String raw) {
+    switch (raw.toLowerCase()) {
+      case 'annual':
+        return const Color(0xFF3B82F6);
+      case 'sick':
+        return const Color(0xFFEF4444);
+      case 'casual':
+        return const Color(0xFF10B981);
+      case 'early_departure':
+        return const Color(0xFFF59E0B);
+      default:
+        return const Color(0xFF8B5CF6);
+    }
+  }
+
+  String _formatDateRange(DateTime? start, DateTime? end) {
+    if (start == null) return 'Date unspecified';
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final startStr = '${months[start.month - 1]} ${start.day}';
+    if (end == null || (start.year == end.year && start.month == end.month && start.day == end.day)) {
+      return '$startStr, ${start.year}';
+    }
+    final endStr = '${months[end.month - 1]} ${end.day}, ${end.year}';
+    return '$startStr – $endStr';
+  }
+
+  String _calculateDays(DateTime? start, DateTime? end) {
+    if (start == null || end == null) return '1 day';
+    final diff = end.difference(start).inDays.abs() + 1;
+    return diff <= 1 ? '1 day' : '$diff days';
+  }
+
+  String _formatSubmittedAgo(DateTime? created) {
+    if (created == null) return 'recently';
+    final diff = DateTime.now().difference(created);
+    if (diff.inMinutes < 60) {
+      final mins = diff.inMinutes.clamp(1, 59);
+      return '$mins min${mins > 1 ? 's' : ''} ago';
+    } else if (diff.inHours < 24) {
+      return '${diff.inHours} hour${diff.inHours > 1 ? 's' : ''} ago';
+    } else {
+      return '${diff.inDays} day${diff.inDays > 1 ? 's' : ''} ago';
+    }
   }
 
   @override
@@ -121,38 +201,90 @@ class _ManagerLeaveManagementScreenState
           labelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
           tabs: [
             Tab(text: 'Pending (${_pendingLeaves.length})'),
-            Tab(text: 'History'),
+            Tab(text: 'History (${_historyLeaves.length})'),
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _buildPendingTab(),
-          _buildHistoryTab(),
-        ],
-      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFF0D9488)))
+          : _errorMessage != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.cloud_off, size: 48, color: Color(0xFFEF4444)),
+                        const SizedBox(height: 12),
+                        Text(
+                          _errorMessage!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+                        ),
+                        const SizedBox(height: 16),
+                        ElevatedButton.icon(
+                          onPressed: _loadLiveLeaveRequests,
+                          icon: const Icon(Icons.refresh, size: 16),
+                          label: const Text('Retry Connection'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF0D9488),
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _buildPendingTab(),
+                    _buildHistoryTab(),
+                  ],
+                ),
     );
   }
 
   Widget _buildPendingTab() {
     if (_pendingLeaves.isEmpty) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.check_circle_outline, size: 64, color: Color(0xFF10B981)),
-            SizedBox(height: 16),
-            Text('No pending leave requests', style: TextStyle(fontSize: 15, color: Color(0xFF64748B))),
+      return RefreshIndicator(
+        onRefresh: _loadLiveLeaveRequests,
+        color: const Color(0xFF0D9488),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            SizedBox(height: 120),
+            Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.check_circle_outline, size: 64, color: Color(0xFF10B981)),
+                  SizedBox(height: 16),
+                  Text(
+                    'No pending leave requests',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                  ),
+                  SizedBox(height: 6),
+                  Text(
+                    'All member leave petitions for this branch have been processed.',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       );
     }
-    return ListView.separated(
-      padding: const EdgeInsets.all(16),
-      itemCount: _pendingLeaves.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, i) => _buildPendingCard(_pendingLeaves[i]),
+    return RefreshIndicator(
+      onRefresh: _loadLiveLeaveRequests,
+      color: const Color(0xFF0D9488),
+      child: ListView.separated(
+        padding: const EdgeInsets.all(16),
+        itemCount: _pendingLeaves.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        itemBuilder: (context, i) => _buildPendingCard(_pendingLeaves[i]),
+      ),
     );
   }
 
@@ -227,7 +359,7 @@ class _ManagerLeaveManagementScreenState
             children: [
               Expanded(
                 child: OutlinedButton(
-                  onPressed: () => _showDecisionDialog(leave['name'], false),
+                  onPressed: () => _showDecisionDialog(leave, false),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFFEF4444),
                     side: const BorderSide(color: Color(0xFFEF4444)),
@@ -240,7 +372,7 @@ class _ManagerLeaveManagementScreenState
               const SizedBox(width: 10),
               Expanded(
                 child: ElevatedButton(
-                  onPressed: () => _showDecisionDialog(leave['name'], true),
+                  onPressed: () => _showDecisionDialog(leave, true),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF0D9488),
                     foregroundColor: Colors.white,
@@ -270,11 +402,38 @@ class _ManagerLeaveManagementScreenState
   }
 
   Widget _buildHistoryTab() {
-    return ListView.separated(
-      padding: const EdgeInsets.all(16),
-      itemCount: _historyLeaves.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (context, i) => _buildHistoryCard(_historyLeaves[i]),
+    if (_historyLeaves.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: _loadLiveLeaveRequests,
+        color: const Color(0xFF0D9488),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            SizedBox(height: 120),
+            Center(
+              child: Column(
+                children: [
+                  Icon(Icons.history, size: 48, color: Color(0xFF94A3B8)),
+                  SizedBox(height: 12),
+                  Text('No historical leave records', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                  SizedBox(height: 6),
+                  Text('Processed leave requests will be cataloged here.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: _loadLiveLeaveRequests,
+      color: const Color(0xFF0D9488),
+      child: ListView.separated(
+        padding: const EdgeInsets.all(16),
+        itemCount: _historyLeaves.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 10),
+        itemBuilder: (context, i) => _buildHistoryCard(_historyLeaves[i]),
+      ),
     );
   }
 
@@ -320,7 +479,10 @@ class _ManagerLeaveManagementScreenState
     );
   }
 
-  void _showDecisionDialog(String name, bool isApprove) {
+  void _showDecisionDialog(Map<String, dynamic> leave, bool isApprove) {
+    final name = leave['name'] as String;
+    final leaveId = leave['id'] as String;
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -329,20 +491,44 @@ class _ManagerLeaveManagementScreenState
         content: Text(
           isApprove
               ? 'Approve the leave request for $name?'
-              : 'Reject the leave request for $name? Please provide a reason.',
+              : 'Reject the leave request for $name?',
           style: const TextStyle(color: Color(0xFF64748B)),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(isApprove ? 'Leave approved for $name' : 'Leave rejected for $name'),
-                  backgroundColor: isApprove ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-                ),
-              );
+              try {
+                final client = Supabase.instance.client;
+                final currentUserId = AuthService().currentUserId;
+                await client.from('leave_requests').update({
+                  'status': isApprove ? 'approved' : 'rejected',
+                  'reviewed_by': currentUserId,
+                  'reviewed_at': DateTime.now().toUtc().toIso8601String(),
+                }).eq('id', leaveId);
+
+                await _loadLiveLeaveRequests();
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(isApprove ? 'Leave approved for $name' : 'Leave rejected for $name'),
+                      backgroundColor: isApprove ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                    ),
+                  );
+                }
+              } catch (e) {
+                debugPrint('[Kivora] Error updating leave decision: $e');
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to update leave request in database: $e'),
+                      backgroundColor: const Color(0xFFEF4444),
+                    ),
+                  );
+                }
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: isApprove ? const Color(0xFF0D9488) : const Color(0xFFEF4444),

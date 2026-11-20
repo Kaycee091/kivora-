@@ -3,10 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kivora_app/app.dart';
 import 'package:kivora_app/core/routing/app_router.dart';
+import 'package:kivora_app/core/services/auth_service.dart';
 import 'package:kivora_app/core/services/kivora_service.dart';
+import 'package:kivora_app/core/services/storage_service.dart';
 
 void main() {
   setUp(() {
+    StorageService.useMemoryOnlyForTests();
+    AuthService().switchToDemoMode();
     KivoraService().resetToDefaults();
     appRouter.go('/welcome');
   });

@@ -3,10 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kivora_app/app.dart';
 import 'package:kivora_app/core/routing/app_router.dart';
+import 'package:kivora_app/core/services/auth_service.dart';
 import 'package:kivora_app/core/services/kivora_service.dart';
+import 'package:kivora_app/core/services/storage_service.dart';
 
 void main() {
   setUp(() {
+    StorageService.useMemoryOnlyForTests();
+    AuthService().switchToDemoMode();
     KivoraService().resetToDefaults();
     appRouter.go('/welcome');
   });
@@ -190,10 +194,11 @@ void main() {
     await tester.tap(find.widgetWithText(ElevatedButton, 'Go to Dashboard'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Branch Manager'), findsOneWidget);
+    // The dashboard now displays the real administrator's name entered in the form
+    expect(find.text('Admin Marcus'), findsOneWidget);
     // The dashboard now displays '${branchName} Branch' using the actual created branch
     expect(find.text('North Tech Academy Branch'), findsOneWidget);
-    expect(find.text('Total Members'), findsOneWidget);
+    expect(find.text('Registered Members'), findsOneWidget);
   });
 
   testWidgets('Test C: Returning User Role Resolution & Routing', (WidgetTester tester) async {

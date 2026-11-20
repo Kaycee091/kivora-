@@ -201,7 +201,33 @@ class _RequestToJoinScreenState extends State<RequestToJoinScreen> {
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: () {
-                  context.go('/branch/status');
+                  final branchId = KivoraService().currentBranchId;
+                  final branch = branchId != null ? KivoraService().getBranchById(branchId) : null;
+                  final bId = branchId ?? (branch?.id ?? 'techverve-branch');
+                  final bName = widget.branchName ?? branch?.name ?? 'Techverve';
+                  final invCode = branch?.inviteCode ?? '';
+
+                  KivoraService().submitApplication(
+                    branchId: bId,
+                    inviteCode: invCode,
+                    userName: KivoraService().currentUserName.isNotEmpty
+                        ? KivoraService().currentUserName
+                        : 'Applicant',
+                    userEmail: KivoraService().currentUserEmail,
+                    submittedData: {
+                      'role': _selectedRole,
+                      'message': _messageController.text.trim(),
+                    },
+                    photoAttached: false,
+                  );
+
+                  context.go(
+                    '/branch/status',
+                    extra: {
+                      'branchId': bId,
+                      'branchName': bName,
+                    },
+                  );
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF0D9488),

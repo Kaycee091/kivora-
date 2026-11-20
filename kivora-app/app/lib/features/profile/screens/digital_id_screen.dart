@@ -103,19 +103,30 @@ class DigitalIdScreen extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 16),
-                        const Text(
-                          'Alex Johnson',
-                          style: TextStyle(
+                        Text(
+                          KivoraService().currentUserName.isNotEmpty
+                              ? KivoraService().currentUserName
+                              : (KivoraService().currentUserEmail.isNotEmpty
+                                  ? KivoraService().currentUserEmail.split('@').first
+                                  : 'Member'),
+                          style: const TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
                             color: Color(0xFF0F172A),
                           ),
                         ),
                         const SizedBox(height: 4),
-                        const Text(
-                          'Student ID: STU00123\nComputer Science',
-                          style: TextStyle(fontSize: 12, color: Color(0xFF64748B), height: 1.3),
-                          textAlign: TextAlign.center,
+                        Builder(
+                          builder: (context) {
+                            final branch = KivoraService().currentBranch;
+                            final branchName = branch?.name ?? 'Techverve Branch';
+                            final email = KivoraService().currentUserEmail;
+                            return Text(
+                              'Branch: $branchName\n$email',
+                              style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), height: 1.3),
+                              textAlign: TextAlign.center,
+                            );
+                          },
                         ),
 
                         const SizedBox(height: 20),

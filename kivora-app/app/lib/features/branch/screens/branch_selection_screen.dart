@@ -36,19 +36,55 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
 
     setState(() => _isValidating = true);
 
-    Future.delayed(const Duration(milliseconds: 400), () {
+    Future.delayed(const Duration(milliseconds: 300), () async {
       if (!mounted) return;
-      final branch = KivoraService().validateInviteCode(code);
+      try {
+        final kivora = KivoraService();
 
-      if (branch == null) {
+        // Check if member already has active assignment
+        if (kivora.membershipStatus == 'approved' && kivora.currentBranchId != null) {
+          setState(() {
+            _isValidating = false;
+            _errorMessage = 'You are already an approved member of this branch.';
+          });
+          return;
+        }
+
+        // Check if member already has pending application
+        if (kivora.membershipStatus == 'pending') {
+          setState(() {
+            _isValidating = false;
+            _errorMessage = 'You already have a pending application for this branch. Please check status.';
+          });
+          return;
+        }
+
+        final result = await kivora.validateInviteCodeDetailed(code);
+        if (!mounted) return;
+
+        if (!result.isValid || result.branch == null) {
+          setState(() {
+            _isValidating = false;
+            _errorMessage = result.errorMessage ??
+                'Invalid, inactive, or expired invitation code. Please check with your branch manager.';
+          });
+        } else {
+          setState(() => _isValidating = false);
+          context.push(
+            '/branch/preview',
+            extra: {
+              'branchId': result.branch!.id,
+              'inviteCode': result.code,
+              'inviteCodeId': result.inviteCodeId,
+            },
+          );
+        }
+      } catch (e) {
+        if (!mounted) return;
         setState(() {
           _isValidating = false;
-          _errorMessage = 'Invalid, inactive, or expired invitation code. Please check with your branch manager.';
+          _errorMessage = 'Unable to validate code due to a connection error. Please try again.';
         });
-      } else {
-        setState(() => _isValidating = false);
-        // Advance to step 2: Display matching branch & proceed
-        context.push('/branch/preview', extra: {'branchId': branch.id, 'inviteCode': code});
       }
     });
   }

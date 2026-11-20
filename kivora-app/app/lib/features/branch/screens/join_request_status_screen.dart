@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/services/auth_service.dart';
 import '../../../core/services/kivora_service.dart';
 
 class JoinRequestStatusScreen extends StatefulWidget {
@@ -35,9 +37,63 @@ class _JoinRequestStatusScreenState extends State<JoinRequestStatusScreen> {
     _refreshStatus();
   }
 
-  void _refreshStatus() {
+  Future<void> _refreshStatus() async {
     final service = KivoraService();
-    // Look up application for the current user or branch
+
+    // In LIVE mode: query Supabase for verified assignment or active request
+    if (AuthService().isLiveMode && AuthService().checkSupabaseReady()) {
+      try {
+        final client = Supabase.instance.client;
+        final currentUserId = client.auth.currentUser?.id;
+
+        if (currentUserId != null) {
+          // 1. Check user_branch_assignments for approved/active status
+          final assignment = await client
+              .from('user_branch_assignments')
+              .select('branch_id, role, is_active, branches(id, name)')
+              .eq('user_id', currentUserId)
+              .eq('is_active', true)
+              .maybeSingle();
+
+          if (assignment != null) {
+            _status = 'approved';
+            service.setMembershipStatus('approved');
+            final b = assignment['branches'] as Map<String, dynamic>?;
+            if (b != null && b['name'] != null) {
+              _branchName = b['name'] as String;
+              final bId = b['id'] as String? ?? assignment['branch_id'] as String;
+              service.setCurrentBranchId(bId);
+            }
+            if (mounted) setState(() {});
+            return;
+          }
+
+          // 2. Check branch_membership_requests for latest status
+          final req = await client
+              .from('branch_membership_requests')
+              .select('id, status, branch_id, branches(id, name)')
+              .eq('user_id', currentUserId)
+              .order('created_at', ascending: false)
+              .limit(1)
+              .maybeSingle();
+
+          if (req != null) {
+            _status = req['status'] as String? ?? 'pending';
+            service.setMembershipStatus(_status);
+            final b = req['branches'] as Map<String, dynamic>?;
+            if (b != null && b['name'] != null) {
+              _branchName = b['name'] as String;
+            }
+            if (mounted) setState(() {});
+            return;
+          }
+        }
+      } catch (e) {
+        debugPrint('JoinRequestStatusScreen Supabase error: $e');
+      }
+    }
+
+    // In-memory fallback
     final app = service.currentApplication ??
         (service.applications.isNotEmpty ? service.applications.last : null);
 
@@ -45,41 +101,38 @@ class _JoinRequestStatusScreenState extends State<JoinRequestStatusScreen> {
       _app = app;
       _branchName = app.branchName;
       _status = app.status;
+      if (mounted) setState(() {});
     }
   }
 
-  void _checkStatus() {
+  Future<void> _checkStatus() async {
     setState(() => _isChecking = true);
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (!mounted) return;
-      setState(() {
-        _isChecking = false;
-        _refreshStatus();
-      });
+    await _refreshStatus();
+    if (!mounted) return;
+    setState(() => _isChecking = false);
 
-      if (_status == 'approved') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Congratulations! Your application has been approved by the Branch Manager.'),
-            backgroundColor: Color(0xFF0D9488),
-          ),
-        );
-      } else if (_status == 'rejected') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Your application was not approved. Please contact your administrator.'),
-            backgroundColor: Color(0xFFEF4444),
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Your application is still under review by the Branch Manager.'),
-            backgroundColor: Color(0xFF0F766E),
-          ),
-        );
-      }
-    });
+    if (_status == 'approved') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Congratulations! Your application has been approved by the Branch Manager.'),
+          backgroundColor: Color(0xFF0D9488),
+        ),
+      );
+    } else if (_status == 'rejected') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Your application was not approved. Please contact your administrator.'),
+          backgroundColor: Color(0xFFEF4444),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Your application is still under review by the Branch Manager.'),
+          backgroundColor: Color(0xFF0F766E),
+        ),
+      );
+    }
   }
 
   @override

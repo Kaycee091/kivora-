@@ -3,9 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kivora_app/app.dart';
 import 'package:kivora_app/core/routing/app_router.dart';
+import 'package:kivora_app/core/services/auth_service.dart';
+import 'package:kivora_app/core/services/kivora_service.dart';
 
 void main() {
   setUp(() {
+    AuthService().switchToDemoMode();
+    KivoraService().resetToDefaults();
     appRouter.go('/manager/sign-in');
   });
 
@@ -37,14 +41,12 @@ void main() {
     expect(find.text('Branch Manager'), findsOneWidget);
     // manager@kivora.org has no pre-seeded branchId — dashboard correctly shows 'No branch assigned'
     expect(find.text('No branch assigned'), findsOneWidget);
-    expect(find.text('Total Members'), findsOneWidget);
-    expect(find.text('48'), findsOneWidget);
-    expect(find.text('Pending Requests'), findsOneWidget);
-    expect(find.text("Today's Attendance"), findsOneWidget);
-    expect(find.text('Early Leave Requests'), findsOneWidget);
+    expect(find.text('Registered Members'), findsOneWidget);
+    expect(find.text('Pending Approvals'), findsOneWidget);
+    expect(find.text('Active Branches'), findsOneWidget);
 
     // 4. Test Quick Action: View Members
-    await tester.tap(find.text('View\nMembers'));
+    await tester.tap(find.text('Members'));
     await tester.pumpAndSettle();
     expect(find.text('Members'), findsWidgets);
 
@@ -53,7 +55,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // 5. Test Quick Action: Attendance Logs
-    await tester.tap(find.text('Attendance\nLogs'));
+    await tester.tap(find.text('Attendance Sign-In Logs'));
     await tester.pumpAndSettle();
     expect(find.text('Attendance Logs'), findsWidgets);
 
@@ -61,10 +63,11 @@ void main() {
     await tester.tap(find.byIcon(Icons.arrow_back));
     await tester.pumpAndSettle();
 
-    // 6. Test Switch Role to Member View
+    // 6. Test Switch Role to Member View:
+    // Because manager@kivora.org has no assigned branch, the route guard securely routes to the Branch Gateway
     await tester.tap(find.byIcon(Icons.swap_horiz));
     await tester.pumpAndSettle();
-    expect(find.text('Alex Johnson'), findsOneWidget);
-    expect(find.text('Student • West Campus'), findsOneWidget);
+    expect(find.text('Branch & Membership Choice'), findsOneWidget);
+    expect(find.text('Create a New Branch'), findsOneWidget);
   });
 }

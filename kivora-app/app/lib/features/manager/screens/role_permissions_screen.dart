@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/services/kivora_service.dart';
 
 class RolePermissionsScreen extends StatefulWidget {
   const RolePermissionsScreen({super.key});
@@ -51,9 +52,9 @@ class _RolePermissionsScreenState extends State<RolePermissionsScreen> {
                   color: const Color(0xFFE0F2F1),
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: const Text(
-                  'West Campus • Delegated Roles',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F766E)),
+                child: Text(
+                  '${KivoraService().currentBranch?.name ?? "Branch"} • Delegated Roles',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F766E)),
                 ),
               ),
               const SizedBox(height: 20),

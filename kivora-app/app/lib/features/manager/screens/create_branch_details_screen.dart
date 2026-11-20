@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/services/kivora_service.dart';
 
 class CreateBranchDetailsScreen extends StatefulWidget {
   final Map<String, dynamic>? initialData;
@@ -23,6 +24,17 @@ class _CreateBranchDetailsScreenState extends State<CreateBranchDetailsScreen> {
   @override
   void initState() {
     super.initState();
+    // 1. First check in-progress draft from KivoraService
+    final draft = KivoraService().branchDraft;
+    if (draft != null) {
+      if (draft.name.isNotEmpty) _nameCtrl.text = draft.name;
+      if (draft.description.isNotEmpty) _descCtrl.text = draft.description;
+      if (draft.address.isNotEmpty) _locCtrl.text = draft.address;
+      if (draft.contactPhone.isNotEmpty) _phoneCtrl.text = draft.contactPhone;
+      if (draft.organizationType.isNotEmpty) _orgType = draft.organizationType;
+    }
+
+    // 2. Override with route extra if explicitly passed
     if (widget.initialData != null) {
       if (widget.initialData!['branchName'] != null) {
         _nameCtrl.text = widget.initialData!['branchName'];
@@ -74,14 +86,29 @@ class _CreateBranchDetailsScreenState extends State<CreateBranchDetailsScreen> {
   void _handleNext() {
     if (!_validate()) return;
 
+    final branchName = _nameCtrl.text.trim();
+    final description = _descCtrl.text.trim();
+    final address = _locCtrl.text.trim();
+    final contactPhone = _phoneCtrl.text.trim();
+    final orgType = _orgType;
+
+    // Persist draft in service and storage so Next -> Back -> Next or refresh retains all values
+    KivoraService().updateBranchDraftDetails(
+      name: branchName,
+      organizationType: orgType,
+      address: address,
+      contactPhone: contactPhone,
+      description: description,
+    );
+
     context.push(
       '/manager/branch/new/admin',
       extra: {
-        'branchName': _nameCtrl.text.trim(),
-        'description': _descCtrl.text.trim(),
-        'address': _locCtrl.text.trim(),
-        'contactPhone': _phoneCtrl.text.trim(),
-        'orgType': _orgType,
+        'branchName': branchName,
+        'description': description,
+        'address': address,
+        'contactPhone': contactPhone,
+        'orgType': orgType,
       },
     );
   }
@@ -126,15 +153,22 @@ class _CreateBranchDetailsScreenState extends State<CreateBranchDetailsScreen> {
               TextField(
                 controller: _nameCtrl,
                 decoration: InputDecoration(
-                  hintText: 'e.g. West Campus, Downtown HQ',
+                  hintText: 'Enter branch name',
                   prefixIcon: const Icon(Icons.apartment, size: 20, color: Color(0xFF0D9488)),
                   errorText: _nameError,
                   filled: true,
                   fillColor: const Color(0xFFF8FAFC),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
                 ),
-                onChanged: (_) {
+                onChanged: (val) {
                   if (_nameError != null) setState(() => _nameError = null);
+                  KivoraService().updateBranchDraftDetails(
+                    name: val.trim(),
+                    organizationType: _orgType,
+                    address: _locCtrl.text.trim(),
+                    contactPhone: _phoneCtrl.text.trim(),
+                    description: _descCtrl.text.trim(),
+                  );
                 },
               ),
 
@@ -162,7 +196,16 @@ class _CreateBranchDetailsScreenState extends State<CreateBranchDetailsScreen> {
                       DropdownMenuItem(value: 'Organization', child: Text('Organization')),
                     ],
                     onChanged: (val) {
-                      if (val != null) setState(() => _orgType = val);
+                      if (val != null) {
+                        setState(() => _orgType = val);
+                        KivoraService().updateBranchDraftDetails(
+                          name: _nameCtrl.text.trim(),
+                          organizationType: val,
+                          address: _locCtrl.text.trim(),
+                          contactPhone: _phoneCtrl.text.trim(),
+                          description: _descCtrl.text.trim(),
+                        );
+                      }
                     },
                   ),
                 ),
@@ -183,8 +226,15 @@ class _CreateBranchDetailsScreenState extends State<CreateBranchDetailsScreen> {
                   fillColor: const Color(0xFFF8FAFC),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
                 ),
-                onChanged: (_) {
+                onChanged: (val) {
                   if (_locError != null) setState(() => _locError = null);
+                  KivoraService().updateBranchDraftDetails(
+                    name: _nameCtrl.text.trim(),
+                    organizationType: _orgType,
+                    address: val.trim(),
+                    contactPhone: _phoneCtrl.text.trim(),
+                    description: _descCtrl.text.trim(),
+                  );
                 },
               ),
 
@@ -203,6 +253,15 @@ class _CreateBranchDetailsScreenState extends State<CreateBranchDetailsScreen> {
                   fillColor: const Color(0xFFF8FAFC),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
                 ),
+                onChanged: (val) {
+                  KivoraService().updateBranchDraftDetails(
+                    name: _nameCtrl.text.trim(),
+                    organizationType: _orgType,
+                    address: _locCtrl.text.trim(),
+                    contactPhone: val.trim(),
+                    description: _descCtrl.text.trim(),
+                  );
+                },
               ),
 
               const SizedBox(height: 18),
@@ -219,6 +278,15 @@ class _CreateBranchDetailsScreenState extends State<CreateBranchDetailsScreen> {
                   fillColor: const Color(0xFFF8FAFC),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
                 ),
+                onChanged: (val) {
+                  KivoraService().updateBranchDraftDetails(
+                    name: _nameCtrl.text.trim(),
+                    organizationType: _orgType,
+                    address: _locCtrl.text.trim(),
+                    contactPhone: _phoneCtrl.text.trim(),
+                    description: val.trim(),
+                  );
+                },
               ),
 
               const SizedBox(height: 36),

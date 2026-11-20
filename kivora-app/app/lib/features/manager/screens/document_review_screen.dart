@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/services/kivora_service.dart';
 
 class DocumentReviewScreen extends StatefulWidget {
   final String memberName;
-  const DocumentReviewScreen({super.key, this.memberName = 'Sarah Johnson'});
+  const DocumentReviewScreen({super.key, this.memberName = 'Member'});
 
   @override
   State<DocumentReviewScreen> createState() => _DocumentReviewScreenState();
@@ -75,9 +76,9 @@ class _DocumentReviewScreenState extends State<DocumentReviewScreen> {
                           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                         ),
                         const SizedBox(height: 2),
-                        const Text(
-                          'Student • West Campus',
-                          style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                        Text(
+                          'Member • ${KivoraService().currentBranch?.name ?? "Techverve"}',
+                          style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
                         ),
                         const SizedBox(height: 6),
                         Container(

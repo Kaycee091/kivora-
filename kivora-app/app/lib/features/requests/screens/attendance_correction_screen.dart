@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/services/auth_service.dart';
 
 class AttendanceCorrectionScreen extends StatefulWidget {
   const AttendanceCorrectionScreen({super.key});
@@ -9,15 +11,66 @@ class AttendanceCorrectionScreen extends StatefulWidget {
 }
 
 class _AttendanceCorrectionScreenState extends State<AttendanceCorrectionScreen> {
-  final TextEditingController _sessionCtrl = TextEditingController(text: 'Computer Science 201');
-  final TextEditingController _dateCtrl = TextEditingController(text: 'Today, 25 Apr 2025');
-  final TextEditingController _timeCtrl = TextEditingController(text: '04:15 PM');
+  final TextEditingController _sessionCtrl = TextEditingController(text: 'General Session');
+  final TextEditingController _dateCtrl = TextEditingController();
+  final TextEditingController _timeCtrl = TextEditingController(text: '05:00 PM');
   final TextEditingController _reasonCtrl = TextEditingController();
   bool _isSubmitting = false;
 
-  void _handleSubmit() {
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    _dateCtrl.text = 'Today, ${now.day} ${months[now.month - 1]} ${now.year}';
+  }
+
+  @override
+  void dispose() {
+    _sessionCtrl.dispose();
+    _dateCtrl.dispose();
+    _timeCtrl.dispose();
+    _reasonCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleSubmit() async {
+    final reason = _reasonCtrl.text.trim();
+    if (reason.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please state a reason for the correction.')),
+      );
+      return;
+    }
+
     setState(() => _isSubmitting = true);
-    Future.delayed(const Duration(milliseconds: 700), () {
+
+    try {
+      if (AuthService().isLiveMode) {
+        final client = Supabase.instance.client;
+        final userId = AuthService().currentUserId;
+        if (userId == null) throw Exception('No active user session');
+
+        final recs = await client
+            .from('attendance_records')
+            .select('id')
+            .eq('user_id', userId)
+            .order('check_in_time', ascending: false)
+            .limit(1);
+
+        if (recs.isNotEmpty) {
+          final recId = recs.first['id'];
+          await client.from('correction_requests').insert({
+            'attendance_record_id': recId,
+            'user_id': userId,
+            'reason': reason,
+            'status': 'pending',
+          });
+        }
+      } else {
+        await Future.delayed(const Duration(milliseconds: 400));
+      }
+
       if (mounted) {
         setState(() => _isSubmitting = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -28,7 +81,17 @@ class _AttendanceCorrectionScreenState extends State<AttendanceCorrectionScreen>
         );
         context.push('/member/requests');
       }
-    });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Submission error: $e'),
+            backgroundColor: const Color(0xFFEF4444),
+          ),
+        );
+      }
+    }
   }
 
   @override

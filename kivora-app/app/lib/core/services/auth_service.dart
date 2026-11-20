@@ -1,5 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'storage_service.dart';
+
+enum AppMode {
+  live,
+  demo,
+}
 
 class AuthResult {
   final bool isSuccess;
@@ -45,8 +51,17 @@ class AuthService extends ChangeNotifier {
   factory AuthService() => _instance;
   AuthService._internal();
 
+  // Explicit App Mode: LIVE by default
+  AppMode _appMode = AppMode.live;
+  AppMode get appMode => _appMode;
+  bool get isLiveMode => _appMode == AppMode.live;
+  bool get isDemoMode => _appMode == AppMode.demo;
+
   bool _isLiveBackendConfigured = false;
   bool get isLiveBackendConfigured => _isLiveBackendConfigured;
+
+  String? _liveInitError;
+  String? get liveInitError => _liveInitError;
 
   // Active OTP expiration and tracking for demo mode
   String? _demoEmail;
@@ -54,8 +69,31 @@ class AuthService extends ChangeNotifier {
   String _demoOtp = '123456';
   DateTime? _demoOtpExpiresAt;
 
+  void setAppMode(AppMode mode) {
+    _appMode = mode;
+    notifyListeners();
+  }
+
+  void switchToDemoMode() {
+    _appMode = AppMode.demo;
+    notifyListeners();
+  }
+
+  void switchToLiveMode() {
+    _appMode = AppMode.live;
+    notifyListeners();
+  }
+
   void setLiveBackendConfigured(bool configured) {
     _isLiveBackendConfigured = configured;
+    if (configured) {
+      _liveInitError = null;
+    }
+    notifyListeners();
+  }
+
+  void setLiveInitError(String? error) {
+    _liveInitError = error;
     notifyListeners();
   }
 
@@ -78,6 +116,9 @@ class AuthService extends ChangeNotifier {
     return null;
   }
 
+  String? get currentUserId => currentSupabaseUser?.id;
+  String? get currentUserEmail => currentSupabaseUser?.email ?? _demoEmail;
+
   /// Request registration and email verification code
   Future<AuthResult> signUp({
     required String email,
@@ -86,8 +127,15 @@ class AuthService extends ChangeNotifier {
   }) async {
     final cleanEmail = email.trim().toLowerCase();
 
-    // 1. If Live Supabase Backend is available
-    if (checkSupabaseReady()) {
+    // 1. LIVE Mode
+    if (isLiveMode) {
+      if (!checkSupabaseReady()) {
+        return AuthResult.unconfigured(
+          _liveInitError ??
+              'Email verification service is not configured: Live Supabase backend is not configured. Please supply SUPABASE_URL and SUPABASE_ANON_KEY (or SUPABASE_PUBLISHABLE_KEY) or switch to Demo Mode.',
+        );
+      }
+
       try {
         final response = await Supabase.instance.client.auth.signUp(
           email: cleanEmail,
@@ -110,20 +158,26 @@ class AuthService extends ChangeNotifier {
       }
     }
 
-    // 2. If Live Backend is NOT configured
-    return AuthResult.unconfigured(
-      'Email verification service is not configured. Real verification codes require an active Supabase backend with SMTP/Email provider settings.',
-    );
+    // 2. DEMO Mode
+    return startDemoRegistration(email: cleanEmail, fullName: fullName);
   }
 
-  /// Sign in with password against real Supabase Auth
+  /// Sign in with password
   Future<AuthResult> signInWithPassword({
     required String email,
     required String password,
   }) async {
     final cleanEmail = email.trim().toLowerCase();
 
-    if (checkSupabaseReady()) {
+    // 1. LIVE Mode
+    if (isLiveMode) {
+      if (!checkSupabaseReady()) {
+        return AuthResult.unconfigured(
+          _liveInitError ??
+              'Cannot sign in in LIVE mode: Live Supabase backend is not configured. Please supply SUPABASE_URL and SUPABASE_ANON_KEY (or SUPABASE_PUBLISHABLE_KEY) or switch to Demo Mode.',
+        );
+      }
+
       try {
         final res = await Supabase.instance.client.auth.signInWithPassword(
           email: cleanEmail,
@@ -145,9 +199,21 @@ class AuthService extends ChangeNotifier {
       }
     }
 
-    return AuthResult.unconfigured(
-      'Live authentication backend is not configured.',
-    );
+    // 2. DEMO Mode
+    if (password.length >= 6) {
+      return AuthResult.success(
+        message: '[Demo Mode] Signed in successfully in demo mode',
+        email: cleanEmail,
+      );
+    }
+    return AuthResult.failure('Invalid demo password (must be at least 6 characters).');
+  }
+
+  VoidCallback? _onSignOutCallback;
+
+  /// Register a callback invoked when the user signs out
+  void registerSignOutHandler(VoidCallback handler) {
+    _onSignOutCallback = handler;
   }
 
   /// Sign out
@@ -157,11 +223,14 @@ class AuthService extends ChangeNotifier {
         await Supabase.instance.client.auth.signOut();
       } catch (_) {}
     }
+    await StorageService().clearSession();
+    _onSignOutCallback?.call();
+    notifyListeners();
   }
 
   /// Restore active session from Supabase on reload
   Future<String?> restoreSession() async {
-    if (checkSupabaseReady()) {
+    if (isLiveMode && checkSupabaseReady()) {
       final user = Supabase.instance.client.auth.currentUser;
       if (user != null) {
         return user.email;
@@ -199,8 +268,14 @@ class AuthService extends ChangeNotifier {
       return AuthResult.failure('Verification code must be exactly 6 digits.');
     }
 
-    // 1. If Live Supabase Backend is active
-    if (checkSupabaseReady() && !isDemoMode) {
+    // 1. LIVE Mode
+    if (isLiveMode && !isDemoMode) {
+      if (!checkSupabaseReady()) {
+        return AuthResult.unconfigured(
+          _liveInitError ?? 'Authentication backend is not configured to verify codes in LIVE mode.',
+        );
+      }
+
       try {
         final res = await Supabase.instance.client.auth.verifyOTP(
           email: cleanEmail,
@@ -220,25 +295,19 @@ class AuthService extends ChangeNotifier {
       }
     }
 
-    // 2. If in Demo Mode, strictly validate against the assigned demo code
-    if (isDemoMode) {
-      if (_demoOtpExpiresAt != null && DateTime.now().isAfter(_demoOtpExpiresAt!)) {
-        return AuthResult.failure('Verification code has expired. Please request a new code.');
-      }
-
-      if (cleanToken == _demoOtp) {
-        return AuthResult.success(
-          message: 'Email successfully verified in demo mode.',
-          email: cleanEmail,
-        );
-      } else {
-        return AuthResult.failure('Invalid verification code. (In Demo Mode, the valid code is 123456)');
-      }
+    // 2. DEMO Mode
+    if (_demoOtpExpiresAt != null && DateTime.now().isAfter(_demoOtpExpiresAt!)) {
+      return AuthResult.failure('Verification code has expired. Please request a new code.');
     }
 
-    return AuthResult.unconfigured(
-      'Authentication backend is not configured to verify codes.',
-    );
+    if (cleanToken == _demoOtp) {
+      return AuthResult.success(
+        message: 'Email successfully verified in demo mode.',
+        email: cleanEmail,
+      );
+    } else {
+      return AuthResult.failure('Invalid verification code. (In Demo Mode, the valid code is 123456)');
+    }
   }
 
   /// Resend verification code
@@ -248,7 +317,11 @@ class AuthService extends ChangeNotifier {
   }) async {
     final cleanEmail = email.trim().toLowerCase();
 
-    if (checkSupabaseReady() && !isDemoMode) {
+    if (isLiveMode && !isDemoMode) {
+      if (!checkSupabaseReady()) {
+        return AuthResult.unconfigured('Email delivery provider is not configured in LIVE mode.');
+      }
+
       try {
         await Supabase.instance.client.auth.resend(
           type: OtpType.signup,
@@ -265,15 +338,11 @@ class AuthService extends ChangeNotifier {
       }
     }
 
-    if (isDemoMode) {
-      _demoOtp = '123456';
-      _demoOtpExpiresAt = DateTime.now().add(const Duration(minutes: 10));
-      return AuthResult.success(
-        message: '[Demo Mode] A new demo verification code has been generated: 123456',
-        email: cleanEmail,
-      );
-    }
-
-    return AuthResult.unconfigured('Email delivery provider is not configured.');
+    _demoOtp = '123456';
+    _demoOtpExpiresAt = DateTime.now().add(const Duration(minutes: 10));
+    return AuthResult.success(
+      message: '[Demo Mode] A new demo verification code has been generated: 123456',
+      email: cleanEmail,
+    );
   }
 }

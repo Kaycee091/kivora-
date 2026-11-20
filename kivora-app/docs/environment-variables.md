@@ -10,8 +10,8 @@ This document details all configuration parameters across the client and server 
 |---|:---:|---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | Yes | Web Admin | Public endpoint of the Supabase project | `https://xyzcompany.supabase.co` |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Web Admin | Public anonymous client key (subject to RLS) | `eyJhbGciOiJIUz...` |
-| `FLUTTER_APP_SUPABASE_URL` | Yes | Mobile (`--dart-define`) | Public endpoint for Flutter Supabase client | `https://xyzcompany.supabase.co` |
-| `FLUTTER_APP_SUPABASE_ANON_KEY` | Yes | Mobile (`--dart-define`) | Public anon key for Flutter Supabase client | `eyJhbGciOiJIUz...` |
+| `SUPABASE_URL` / `FLUTTER_APP_SUPABASE_URL` | Yes | Mobile (`--dart-define`) | Public endpoint for Flutter Supabase client | `https://xyzcompany.supabase.co` |
+| `SUPABASE_ANON_KEY` / `SUPABASE_PUBLISHABLE_KEY` | Yes | Mobile (`--dart-define`) | Public anon or publishable key for Flutter Supabase client | `eyJhbGciOiJIUz...` |
 
 ---
 

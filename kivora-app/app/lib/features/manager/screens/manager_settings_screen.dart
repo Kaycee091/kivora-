@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/services/auth_service.dart';
 import '../../../core/services/kivora_service.dart';
 
 /// EXTRA — Manager Settings (account, preferences, security, notifications)
@@ -129,7 +130,12 @@ class _ManagerSettingsScreenState extends State<ManagerSettingsScreen> {
               child: SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed: () => context.go('/manager/sign-in'),
+                  onPressed: () async {
+                    await AuthService().signOut();
+                    if (context.mounted) {
+                      context.go('/welcome');
+                    }
+                  },
                   icon: const Icon(Icons.logout, color: Color(0xFFEF4444)),
                   label: const Text('Sign Out', style: TextStyle(color: Color(0xFFEF4444), fontWeight: FontWeight.w600)),
                   style: OutlinedButton.styleFrom(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/services/kivora_service.dart';
 
 class MembersOverviewScreen extends StatefulWidget {
   const MembersOverviewScreen({super.key});
@@ -10,17 +11,49 @@ class MembersOverviewScreen extends StatefulWidget {
 
 class _MembersOverviewScreenState extends State<MembersOverviewScreen> {
   int _selectedTabIndex = 0; // 0: All, 1: Teachers, 2: Staff
+  bool _isLoading = false;
+  String? _errorMessage;
 
-  final List<Map<String, String>> _members = [
-    {'name': 'Sarah Johnson', 'role': 'Student', 'status': 'Active'},
-    {'name': 'Michael Brown', 'role': 'Teacher', 'status': 'Active'},
-    {'name': 'Emily Davis', 'role': 'Staff', 'status': 'Pending'},
-    {'name': 'James Wilson', 'role': 'Student', 'status': 'Active'},
-    {'name': 'Olivia Martinez', 'role': 'Teacher', 'status': 'Active'},
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _loadMembers();
+  }
+
+  Future<void> _loadMembers() async {
+    final branchId = KivoraService().currentBranchId;
+    if (branchId == null) {
+      setState(() => _errorMessage = 'No active session. Please sign in.');
+      return;
+    }
+    setState(() { _isLoading = true; _errorMessage = null; });
+    try {
+      await KivoraService().fetchBranchMembers(branchId);
+    } catch (e) {
+      if (mounted) setState(() => _errorMessage = 'Failed to load members. Tap to retry.');
+    }
+    if (mounted) setState(() => _isLoading = false);
+  }
+
+  List<Map<String, String>> get _effectiveMembers {
+    final svcMembers = KivoraService().members;
+    return svcMembers.map((m) => {
+      'name': m.name,
+      'role': m.role,
+      'status': m.status,
+    }).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final all = _effectiveMembers;
+    final filtered = all.where((m) {
+      final role = (m['role'] ?? '').toLowerCase();
+      if (_selectedTabIndex == 1) return role.contains('teacher') || role.contains('admin');
+      if (_selectedTabIndex == 2) return role.contains('staff') || role.contains('manager');
+      return true;
+    }).toList();
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
@@ -54,68 +87,112 @@ class _MembersOverviewScreenState extends State<MembersOverviewScreen> {
           const Divider(height: 1, color: Color(0xFFE2E8F0)),
 
           Expanded(
-            child: ListView.separated(
-              padding: const EdgeInsets.all(20),
-              itemCount: _members.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final m = _members[index];
-                final isPending = m['status'] == 'Pending';
-
-                return Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 20,
-                        backgroundColor: const Color(0xFFE0F2F1),
-                        child: Text(
-                          m['name']!.split(' ').map((n) => n[0]).join(''),
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0D9488)),
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator(color: Color(0xFF0D9488)))
+                : _errorMessage != null
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(32.0),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.wifi_off_outlined, size: 48, color: Color(0xFF94A3B8)),
+                              const SizedBox(height: 12),
+                              Text(_errorMessage!, style: const TextStyle(fontSize: 14, color: Color(0xFF64748B)), textAlign: TextAlign.center),
+                              const SizedBox(height: 16),
+                              ElevatedButton(onPressed: _loadMembers, style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0D9488)), child: const Text('Retry', style: TextStyle(color: Colors.white))),
+                            ],
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
+                      )
+                    : filtered.isEmpty
+                    ? Center(
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text(
-                              m['name']!,
-                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFF0FDFA),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.people_outline, size: 48, color: Color(0xFF0D9488)),
                             ),
-                            const SizedBox(height: 2),
-                            Text(
-                              m['role']!,
-                              style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                            const SizedBox(height: 14),
+                            const Text(
+                              'No Members Registered',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Approved branch members will appear here.',
+                              style: TextStyle(fontSize: 12.5, color: Color(0xFF64748B)),
                             ),
                           ],
                         ),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.all(20),
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (context, index) {
+                          final m = filtered[index];
+                          final isPending = m['status'] == 'Pending';
+
+                          return Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: const Color(0xFFE2E8F0)),
+                            ),
+                            child: Row(
+                              children: [
+                                CircleAvatar(
+                                  radius: 20,
+                                  backgroundColor: const Color(0xFFE0F2F1),
+                                  child: Text(
+                                    m['name']!.split(' ').map((n) => n.isNotEmpty ? n[0] : '').join(''),
+                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0D9488)),
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        m['name']!,
+                                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        m['role']!,
+                                        style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: isPending ? const Color(0xFFFEF3C7) : const Color(0xFFECFDF5),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    m['status']!,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: isPending ? const Color(0xFFD97706) : const Color(0xFF059669),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
                       ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: isPending ? const Color(0xFFFEF3C7) : const Color(0xFFECFDF5),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          m['status']!,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            color: isPending ? const Color(0xFFD97706) : const Color(0xFF059669),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
           ),
         ],
       ),

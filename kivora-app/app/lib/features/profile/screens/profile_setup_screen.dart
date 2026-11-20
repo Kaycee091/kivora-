@@ -1,17 +1,22 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:file_picker/file_picker.dart';
+import '../../../core/services/auth_service.dart';
 import '../../../core/services/kivora_service.dart';
 
 class ProfileSetupScreen extends StatefulWidget {
   final String? branchId;
   final String? branchName;
   final String? inviteCode;
+  final String? inviteCodeId;
 
   const ProfileSetupScreen({
     super.key,
     this.branchId,
     this.branchName,
     this.inviteCode,
+    this.inviteCodeId,
   });
 
   @override
@@ -28,16 +33,18 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   final Map<String, String?> _errors = {};
 
   bool _photoAttached = true;
+  Uint8List? _photoBytes;
+  String? _photoFileName;
   String? _photoError;
   bool _isSubmitting = false;
 
   @override
   void initState() {
     super.initState();
-    _activeBranchId = widget.branchId ?? KivoraService().currentBranchId ?? 'branch-west';
-    final branch = KivoraService().getBranchById(_activeBranchId);
-    _activeBranchName = widget.branchName ?? branch?.name ?? 'West Campus';
-    _activeInviteCode = widget.inviteCode ?? branch?.inviteCode ?? 'WEST-2026';
+    _activeBranchId = widget.branchId ?? KivoraService().currentBranchId ?? '';
+    final branch = _activeBranchId.isNotEmpty ? KivoraService().getBranchById(_activeBranchId) : null;
+    _activeBranchName = widget.branchName ?? branch?.name ?? 'Branch';
+    _activeInviteCode = widget.inviteCode ?? branch?.inviteCode ?? '';
 
     // Load branch manager's configured identification fields
     _formFields = KivoraService().getIdFormConfig(_activeBranchId).where((f) => f.isEnabled).toList();
@@ -46,13 +53,17 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       if (field.type != FieldType.photo) {
         String defaultVal = '';
         if (field.id == 'full_name' || field.label.toLowerCase().contains('name')) {
-          defaultVal = KivoraService().currentUserName.isNotEmpty ? KivoraService().currentUserName : 'Alex Johnson';
+          defaultVal = KivoraService().currentUserName.isNotEmpty
+              ? KivoraService().currentUserName
+              : (AuthService().isDemoMode ? 'Sarah Johnson' : '');
         } else if (field.id == 'email' || field.label.toLowerCase().contains('email')) {
-          defaultVal = KivoraService().currentUserEmail;
+          defaultVal = KivoraService().currentUserEmail.isNotEmpty
+              ? KivoraService().currentUserEmail
+              : (AuthService().isDemoMode ? 'sarah.johnson@kivora.edu.ng' : '');
         } else if (field.id == 'phone' || field.label.toLowerCase().contains('phone')) {
-          defaultVal = '+234 801 234 5678';
+          defaultVal = AuthService().isDemoMode ? '+234 801 234 5678' : '';
         } else if (field.id == 'student_id') {
-          defaultVal = 'KIV-2026-0891';
+          defaultVal = AuthService().isDemoMode ? 'KIV-2026-0891' : '';
         }
         _controllers[field.id] = TextEditingController(text: defaultVal);
       }
@@ -65,6 +76,29 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       c.dispose();
     }
     super.dispose();
+  }
+
+  Future<void> _pickPhoto() async {
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['jpg', 'jpeg', 'png', 'webp'],
+        withData: true,
+      );
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+        if (file.bytes != null) {
+          setState(() {
+            _photoBytes = file.bytes;
+            _photoFileName = file.name;
+            _photoAttached = true;
+            _photoError = null;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Photo picker error: $e');
+    }
   }
 
   bool _validateForm() {
@@ -118,7 +152,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     final submittedData = <String, dynamic>{};
     for (var field in _formFields) {
       if (field.type == FieldType.photo) {
-        submittedData[field.id] = _photoAttached ? 'attached_photo.jpg' : null;
+        submittedData[field.id] = _photoAttached ? (_photoFileName ?? 'attached_photo.jpg') : null;
       } else {
         submittedData[field.id] = _controllers[field.id]?.text.trim();
       }
@@ -132,22 +166,37 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             ? rawApplicantEmail.trim()
             : KivoraService().currentUserEmail;
 
-    Future.delayed(const Duration(milliseconds: 600), () {
+    Future.delayed(const Duration(milliseconds: 400), () async {
+      String? photoUrl;
+      if (_photoBytes != null && _photoFileName != null) {
+        final ext = _photoFileName!.contains('.') ? _photoFileName!.split('.').last : 'jpg';
+        photoUrl = await KivoraService().uploadPhotoToSupabase(
+          _photoBytes!,
+          'id_${DateTime.now().millisecondsSinceEpoch}.$ext',
+        );
+        if (photoUrl != null) {
+          submittedData['photo_url'] = photoUrl;
+        }
+      }
+
       if (!mounted) return;
 
-      // Save application persistently in KivoraService
+      // Save application persistently in KivoraService (and Supabase in LIVE mode)
       KivoraService().submitApplication(
         branchId: _activeBranchId,
         inviteCode: _activeInviteCode,
+        inviteCodeId: widget.inviteCodeId,
         userName: applicantName,
         userEmail: applicantEmail,
         submittedData: submittedData,
         photoAttached: _photoAttached,
+        photoUrl: photoUrl,
       );
 
       setState(() => _isSubmitting = false);
 
       // Navigate to dedicated Waiting for Approval screen (M08)
+      if (!mounted) return;
       context.go(
         '/branch/status',
         extra: {
@@ -268,12 +317,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         ),
         const SizedBox(height: 8),
         GestureDetector(
-          onTap: () {
-            setState(() {
-              _photoAttached = !_photoAttached;
-              if (_photoAttached) _photoError = null;
-            });
-          },
+          onTap: _pickPhoto,
           child: Container(
             width: double.infinity,
             padding: const EdgeInsets.all(20),
@@ -289,25 +333,51 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             ),
             child: Column(
               children: [
-                Icon(
-                  _photoAttached ? Icons.check_circle : Icons.add_a_photo_outlined,
-                  size: 40,
-                  color: _photoAttached ? const Color(0xFF10B981) : const Color(0xFF0D9488),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _photoAttached ? 'Photo Attached (identity_photo.jpg)' : 'Tap to upload photo (JPEG/PNG)',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: _photoAttached ? const Color(0xFF059669) : const Color(0xFF0F172A),
+                if (_photoBytes != null) ...[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.memory(
+                      _photoBytes!,
+                      width: 80,
+                      height: 80,
+                      fit: BoxFit.cover,
+                    ),
                   ),
-                ),
-                if (!_photoAttached)
+                  const SizedBox(height: 10),
+                  Text(
+                    'Photo Attached: ${_photoFileName ?? "image.jpg"}',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF059669),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
                   const Text(
-                    'Clear, forward-facing photo required for verification',
-                    style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                    'Tap to choose another photo',
+                    style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                   ),
+                ] else ...[
+                  Icon(
+                    _photoAttached ? Icons.check_circle : Icons.add_a_photo_outlined,
+                    size: 40,
+                    color: _photoAttached ? const Color(0xFF10B981) : const Color(0xFF0D9488),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _photoAttached ? 'Photo Attached (identity_photo.jpg)' : 'Tap to upload identity photo (JPEG/PNG)',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: _photoAttached ? const Color(0xFF059669) : const Color(0xFF0F172A),
+                    ),
+                  ),
+                  if (!_photoAttached)
+                    const Text(
+                      'Clear, forward-facing photo required for verification',
+                      style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                    ),
+                ],
               ],
             ),
           ),

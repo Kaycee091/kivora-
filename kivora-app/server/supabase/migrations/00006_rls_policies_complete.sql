@@ -23,6 +23,7 @@ CREATE POLICY "Members and applicants can view their organization"
                   public.is_branch_member(b.id)
                   OR public.is_branch_manager(b.id)
                   OR public.has_branch_membership_request(b.id)
+                  OR b.created_by = auth.uid()
               )
         )
     );
@@ -42,6 +43,7 @@ CREATE POLICY "Members and applicants can view assigned branch"
         public.is_branch_member(id)
         OR public.is_branch_manager(id)
         OR public.has_branch_membership_request(id)
+        OR created_by = auth.uid()
     );
 
 -- Creator identity bound to auth.uid() to eliminate branch spoofing

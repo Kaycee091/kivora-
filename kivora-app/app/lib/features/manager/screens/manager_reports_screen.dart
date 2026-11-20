@@ -1,11 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
+import '../../../core/services/kivora_service.dart';
 
 class ManagerReportsScreen extends StatelessWidget {
   const ManagerReportsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final kivora = KivoraService();
+    final activeBranchId = kivora.currentBranchId;
+    final totalMembers = kivora.members.where((m) => activeBranchId == null || m.branchId == activeBranchId).length;
+    final branchRecords = kivora.attendanceRecords.where((r) => activeBranchId == null || r.branchId == activeBranchId).toList();
+    final now = DateTime.now();
+    final thisMonthRecords = branchRecords.where((r) => r.signInTime.year == now.year && r.signInTime.month == now.month).toList();
+    final totalSignIns = thisMonthRecords.length;
+    final attendanceRate = totalMembers > 0 && totalSignIns > 0 ? '${((totalSignIns / (totalMembers * 20)).clamp(0.0, 1.0) * 100).toStringAsFixed(0)}%' : (totalMembers > 0 ? '100%' : '0%');
+    final lateCount = thisMonthRecords.where((r) => r.signInTime.hour > 9).length;
+    final dateRangeStr = DateFormat('MMM 1 – MMM d, yyyy').format(now);
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
@@ -36,12 +49,12 @@ class ManagerReportsScreen extends StatelessWidget {
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: const [
+                children: [
                   Text(
-                    'Apr 1 – Apr 30, 2025',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                    dateRangeStr,
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                   ),
-                  Icon(Icons.keyboard_arrow_down, color: Color(0xFF64748B)),
+                  const Icon(Icons.keyboard_arrow_down, color: Color(0xFF64748B)),
                 ],
               ),
             ),
@@ -54,7 +67,7 @@ class ManagerReportsScreen extends StatelessWidget {
                 Expanded(
                   child: _buildMetricTile(
                     label: 'Attendance Rate',
-                    value: '94%',
+                    value: attendanceRate,
                     icon: Icons.pie_chart_outline,
                     color: const Color(0xFF0D9488),
                   ),
@@ -63,7 +76,7 @@ class ManagerReportsScreen extends StatelessWidget {
                 Expanded(
                   child: _buildMetricTile(
                     label: 'Total Members',
-                    value: '48',
+                    value: totalMembers.toString(),
                     icon: Icons.people_outline,
                     color: const Color(0xFF0284C7),
                   ),
@@ -76,7 +89,7 @@ class ManagerReportsScreen extends StatelessWidget {
                 Expanded(
                   child: _buildMetricTile(
                     label: 'Late Arrivals',
-                    value: '3',
+                    value: lateCount.toString(),
                     icon: Icons.access_time,
                     color: const Color(0xFFF59E0B),
                   ),
@@ -84,10 +97,10 @@ class ManagerReportsScreen extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: _buildMetricTile(
-                    label: 'Early Leaves',
-                    value: '2',
-                    icon: Icons.timer_off_outlined,
-                    color: const Color(0xFFEF4444),
+                    label: 'Total Records',
+                    value: totalSignIns.toString(),
+                    icon: Icons.verified_outlined,
+                    color: const Color(0xFF10B981),
                   ),
                 ),
               ],

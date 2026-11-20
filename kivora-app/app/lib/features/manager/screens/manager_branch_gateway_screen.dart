@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/services/auth_service.dart';
+import '../../../core/services/kivora_service.dart';
 
 class ManagerBranchGatewayScreen extends StatelessWidget {
   const ManagerBranchGatewayScreen({super.key});
@@ -239,7 +241,46 @@ class ManagerBranchGatewayScreen extends StatelessWidget {
                         const SizedBox(width: 8),
                         Expanded(
                           child: OutlinedButton(
-                            onPressed: () => context.go('/manager/dashboard'),
+                            onPressed: () async {
+                              final service = KivoraService();
+                              if (service.isManagerOrAdmin) {
+                                context.go('/manager/dashboard');
+                                return;
+                              }
+                              if (AuthService().isLiveMode && AuthService().checkSupabaseReady()) {
+                                try {
+                                  await service.resolveLiveUserState();
+                                  if (context.mounted && service.isManagerOrAdmin) {
+                                    context.go('/manager/dashboard');
+                                    return;
+                                  }
+                                } catch (e) {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text('Failed to load manager assignment: $e'),
+                                        backgroundColor: const Color(0xFFEF4444),
+                                        duration: const Duration(seconds: 3),
+                                      ),
+                                    );
+                                  }
+                                  return;
+                                }
+                              }
+                              if (context.mounted) {
+                                if (service.isManagerOrAdmin) {
+                                  context.go('/manager/dashboard');
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('No active manager assignment found for this account.'),
+                                      backgroundColor: Color(0xFFEF4444),
+                                      duration: Duration(seconds: 2),
+                                    ),
+                                  );
+                                }
+                              }
+                            },
                             style: OutlinedButton.styleFrom(
                               side: const BorderSide(color: Color(0xFFCBD5E1)),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -274,7 +315,12 @@ class ManagerBranchGatewayScreen extends StatelessWidget {
 
               const SizedBox(height: 20),
               TextButton.icon(
-                onPressed: () => context.go('/welcome'),
+                onPressed: () async {
+                  await AuthService().signOut();
+                  if (context.mounted) {
+                    context.go('/welcome');
+                  }
+                },
                 icon: const Icon(Icons.logout, size: 16, color: Color(0xFF94A3B8)),
                 label: const Text(
                   'Sign out & return to welcome',

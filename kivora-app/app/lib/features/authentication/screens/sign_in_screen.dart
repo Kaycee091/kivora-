@@ -63,26 +63,52 @@ class _SignInScreenState extends State<SignInScreen> {
     final password = _passwordController.text;
     setState(() => _isLoading = true);
 
-    if (AuthService().isLiveBackendConfigured) {
+    if (AuthService().isLiveMode) {
+      if (!AuthService().isLiveBackendConfigured) {
+        setState(() {
+          _isLoading = false;
+          _passwordError = AuthService().liveInitError ??
+              'Cannot sign in: Live Supabase backend is not configured. Please switch to Demo Mode to test without credentials.';
+        });
+        return;
+      }
+
       final res = await AuthService().signInWithPassword(email: email, password: password);
       if (!mounted) return;
-      setState(() => _isLoading = false);
 
       if (!res.isSuccess) {
         setState(() {
+          _isLoading = false;
           _passwordError = res.errorMessage ?? 'Invalid email or password.';
         });
         return;
       }
 
-      // Elevated active member in session
-      KivoraService().setCurrentUser(
-        email: email,
-        name: email.split('@').first,
-        role: 'member',
-        branchId: 'branch-west',
-      );
-      context.go('/member/home');
+      // Resolve live user state directly from database tables
+      try {
+        await KivoraService().resolveLiveUserState();
+      } catch (e) {
+        if (!mounted) return;
+        setState(() {
+          _isLoading = false;
+          _passwordError = 'Unable to load branch assignments: $e';
+        });
+        return;
+      }
+
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+
+      final service = KivoraService();
+      if (service.isManagerOrAdmin) {
+        context.go('/manager/dashboard');
+      } else if (service.membershipStatus == 'approved' && service.currentBranchId != null) {
+        context.go('/member/home');
+      } else if (service.membershipStatus == 'pending' || service.membershipStatus == 'rejected') {
+        context.go('/branch/status');
+      } else {
+        context.go('/branch/gateway');
+      }
       return;
     }
 
@@ -96,6 +122,14 @@ class _SignInScreenState extends State<SignInScreen> {
           KivoraService().applications.any((a) => a.userEmail.toLowerCase() == email && a.status == 'pending');
       final hasNoBranch = email.contains('new');
 
+      // Check if this demo user maps to an existing demo member profile
+      final demoMember = KivoraService().members.cast<MemberProfileModel?>().firstWhere(
+        (m) => m?.email.toLowerCase() == email,
+        orElse: () => null,
+      );
+      final memberBranchId = demoMember?.branchId ??
+          KivoraService().branches.firstWhere((b) => b.id == 'branch-west', orElse: () => KivoraService().branches.first).id;
+
       if (isManager) {
         final managerBranch = KivoraService().branches
             .cast<BranchModel?>()
@@ -108,14 +142,15 @@ class _SignInScreenState extends State<SignInScreen> {
         );
         context.go('/manager/dashboard');
       } else if (isPending) {
-        KivoraService().setCurrentUser(email: email, name: 'Applicant', role: 'guest', branchId: 'branch-west');
+        KivoraService().setCurrentUser(email: email, name: 'Applicant', role: 'guest', branchId: memberBranchId);
         context.go('/branch/status');
       } else if (hasNoBranch) {
         KivoraService().setCurrentUser(email: email, name: 'New User', role: 'guest');
         context.go('/branch/gateway');
       } else {
-        // Returning active member
-        KivoraService().setCurrentUser(email: email, name: 'Alex Johnson', role: 'member', branchId: 'branch-west');
+        // Returning active member in demo
+        final memberName = demoMember?.name ?? 'Alex Johnson';
+        KivoraService().setCurrentUser(email: email, name: memberName, role: 'member', branchId: memberBranchId);
         context.go('/member/home');
       }
     });

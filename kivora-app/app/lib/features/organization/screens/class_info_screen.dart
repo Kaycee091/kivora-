@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/services/auth_service.dart';
+import '../../../core/services/kivora_service.dart';
 
 class ClassInfoScreen extends StatefulWidget {
   final String classId;
@@ -172,13 +174,34 @@ class _ClassInfoScreenState extends State<ClassInfoScreen> {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: const [
-          Text('Enrolled Roster (48 Students)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-          SizedBox(height: 12),
-          Text('Sarah Johnson • STU00123\nJames Wilson • STU00124\nDavid Wilson • STU00125', style: TextStyle(fontSize: 12, height: 1.6, color: Color(0xFF475569))),
-        ],
+      child: Builder(
+        builder: (context) {
+          if (AuthService().isDemoMode) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                Text('Enrolled Roster (Demo)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                SizedBox(height: 12),
+                Text('Sarah Johnson • STU00123\nJames Wilson • STU00124\nDavid Wilson • STU00125', style: TextStyle(fontSize: 12, height: 1.6, color: Color(0xFF475569))),
+              ],
+            );
+          }
+          final members = KivoraService().members;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Enrolled Roster (${members.length} Members)', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              if (members.isEmpty)
+                const Text('No members currently assigned to this class roster.', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)))
+              else
+                Text(
+                  members.take(5).map((m) => '${m.name} • ${m.role}').join('\n'),
+                  style: const TextStyle(fontSize: 12, height: 1.6, color: Color(0xFF475569)),
+                ),
+            ],
+          );
+        },
       ),
     );
   }

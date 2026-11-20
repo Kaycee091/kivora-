@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/services/auth_service.dart';
+import '../../../core/services/kivora_service.dart';
 
 class LeaveRequestScreen extends StatefulWidget {
   const LeaveRequestScreen({super.key});
@@ -10,14 +13,73 @@ class LeaveRequestScreen extends StatefulWidget {
 
 class _LeaveRequestScreenState extends State<LeaveRequestScreen> {
   String _leaveType = 'Annual Leave';
-  final TextEditingController _startDateCtrl = TextEditingController(text: 'Apr 21, 2025');
-  final TextEditingController _endDateCtrl = TextEditingController(text: 'Apr 25, 2025');
+  late final TextEditingController _startDateCtrl;
+  late final TextEditingController _endDateCtrl;
   final TextEditingController _reasonCtrl = TextEditingController();
   bool _isSubmitting = false;
 
-  void _handleSubmit() {
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    final end = now.add(const Duration(days: 3));
+    _startDateCtrl = TextEditingController(text: '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}');
+    _endDateCtrl = TextEditingController(text: '${end.year}-${end.month.toString().padLeft(2, '0')}-${end.day.toString().padLeft(2, '0')}');
+  }
+
+  @override
+  void dispose() {
+    _startDateCtrl.dispose();
+    _endDateCtrl.dispose();
+    _reasonCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleSubmit() async {
+    final reason = _reasonCtrl.text.trim();
+    if (reason.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a reason for the leave request.')),
+      );
+      return;
+    }
+
     setState(() => _isSubmitting = true);
-    Future.delayed(const Duration(milliseconds: 700), () {
+
+    try {
+      if (AuthService().isLiveMode) {
+        final branchId = KivoraService().currentBranchId;
+        final userId = AuthService().currentUserId;
+
+        if (branchId == null || userId == null) {
+          throw Exception('No active branch or user session found.');
+        }
+
+        String typeCode = 'annual';
+        if (_leaveType.contains('Sick')) {
+          typeCode = 'sick';
+        } else if (_leaveType.contains('Casual')) {
+          typeCode = 'casual';
+        } else if (_leaveType.contains('Early')) {
+          typeCode = 'early_departure';
+        } else if (_leaveType.contains('Other')) {
+          typeCode = 'other';
+        }
+
+        final now = DateTime.now();
+        await Supabase.instance.client.from('leave_requests').insert({
+          'branch_id': branchId,
+          'user_id': userId,
+          'leave_type': typeCode,
+          'start_date': now.toUtc().toIso8601String(),
+          'end_date': now.add(const Duration(days: 3)).toUtc().toIso8601String(),
+          'reason': reason,
+          'status': 'pending',
+        });
+      } else {
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+
       if (mounted) {
         setState(() => _isSubmitting = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -28,7 +90,17 @@ class _LeaveRequestScreenState extends State<LeaveRequestScreen> {
         );
         context.push('/member/requests');
       }
-    });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Submission error: $e'),
+            backgroundColor: const Color(0xFFEF4444),
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -102,6 +174,7 @@ class _LeaveRequestScreenState extends State<LeaveRequestScreen> {
                       DropdownMenuItem(value: 'Sick Leave', child: Text('Sick Leave')),
                       DropdownMenuItem(value: 'Casual Leave', child: Text('Casual Leave')),
                       DropdownMenuItem(value: 'Early Departure', child: Text('Early Departure')),
+                      DropdownMenuItem(value: 'Other', child: Text('Other')),
                     ],
                     onChanged: (val) {
                       if (val != null) setState(() => _leaveType = val);
@@ -112,40 +185,47 @@ class _LeaveRequestScreenState extends State<LeaveRequestScreen> {
 
               const SizedBox(height: 18),
 
-              // Start Date Picker
-              const Text('Start Date', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
-              const SizedBox(height: 6),
-              TextField(
-                controller: _startDateCtrl,
-                readOnly: true,
-                decoration: InputDecoration(
-                  prefixIcon: const Icon(Icons.calendar_today_outlined, size: 18, color: Color(0xFF0D9488)),
-                  filled: true,
-                  fillColor: const Color(0xFFF8FAFC),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+              // Date pickers row
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Start Date', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
+                        const SizedBox(height: 6),
+                        TextField(
+                          controller: _startDateCtrl,
+                          decoration: InputDecoration(
+                            prefixIcon: const Icon(Icons.calendar_today, size: 16, color: Color(0xFF0D9488)),
+                            filled: true,
+                            fillColor: const Color(0xFFF8FAFC),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ),
-
-              const SizedBox(height: 18),
-
-              // End Date Picker
-              const Text('End Date', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
-              const SizedBox(height: 6),
-              TextField(
-                controller: _endDateCtrl,
-                readOnly: true,
-                decoration: InputDecoration(
-                  prefixIcon: const Icon(Icons.calendar_today_outlined, size: 18, color: Color(0xFF0D9488)),
-                  filled: true,
-                  fillColor: const Color(0xFFF8FAFC),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('End Date', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
+                        const SizedBox(height: 6),
+                        TextField(
+                          controller: _endDateCtrl,
+                          decoration: InputDecoration(
+                            prefixIcon: const Icon(Icons.calendar_today, size: 16, color: Color(0xFF0D9488)),
+                            filled: true,
+                            fillColor: const Color(0xFFF8FAFC),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
+                ],
               ),
 
               const SizedBox(height: 18),
