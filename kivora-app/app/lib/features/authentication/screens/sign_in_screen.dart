@@ -76,6 +76,18 @@ class _SignInScreenState extends State<SignInScreen> {
       final res = await AuthService().signInWithPassword(email: email, password: password);
       if (!mounted) return;
 
+      if (res.needsEmailVerification) {
+        // Send a fresh code via Brevo (a cooldown error is fine: a recent code is still valid).
+        await AuthService().resendOtp(email: email);
+        if (!mounted) return;
+        setState(() => _isLoading = false);
+        context.go('/auth/verify-email?email=${Uri.encodeComponent(email)}', extra: {
+          'email': email,
+          'isDemo': false,
+        });
+        return;
+      }
+
       if (!res.isSuccess) {
         setState(() {
           _isLoading = false;

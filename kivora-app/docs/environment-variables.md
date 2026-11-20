@@ -23,6 +23,23 @@ This document details all configuration parameters across the client and server 
 | `SUPABASE_URL` | Yes | Edge Functions | Internal project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Edge Functions | Privileged service key bypassing RLS for administrative jobs |
 | `SUPABASE_DB_PASSWORD` | Optional | Migrations / CLI | Direct PostgreSQL connection password |
-| `SMTP_HOST` | Optional | Server notifications | Hostname for outgoing email server |
-| `SMTP_USER` | Optional | Server notifications | Username for SMTP service |
-| `SMTP_PASSWORD` | Optional | Server notifications | Password for SMTP service |
+
+---
+
+## 3. Email (Brevo SMTP, web/admin server only)
+
+Supabase sends no email. The web/admin server sends verification codes through Brevo.
+Full guide: [email-brevo-setup.md](./email-brevo-setup.md).
+
+| Variable Name | Required | Description |
+|---|:---:|---|
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Creates accounts / confirms emails via the admin API |
+| `BREVO_SMTP_HOST` | No | Defaults to `smtp-relay.brevo.com` |
+| `BREVO_SMTP_PORT` | No | Defaults to `587` |
+| `BREVO_SMTP_USER` | Yes | Brevo SMTP login (`xxxx@smtp-brevo.com`) |
+| `BREVO_SMTP_KEY` | Yes | Brevo SMTP key (`xsmtpsib-...`) |
+| `EMAIL_FROM_ADDRESS` | Yes | Sender verified in Brevo |
+| `EMAIL_FROM_NAME` | No | Defaults to `Kivora` |
+| `EMAIL_OTP_SECRET` | No | HMAC secret for codes; defaults to the service role key |
+| `CORS_ALLOWED_ORIGINS` | Yes (Flutter web) | Comma-separated origins allowed to call `/api/auth/*` |
+| `KIVORA_API_URL` | Yes (Flutter, `--dart-define`) | Base URL of the web/admin server; defaults to `http://localhost:3000` |

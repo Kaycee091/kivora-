@@ -1,4 +1,8 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'storage_service.dart';
 
@@ -13,6 +17,7 @@ class AuthResult {
   final String? successMessage;
   final String? email;
   final bool isUnconfigured;
+  final bool needsEmailVerification;
 
   const AuthResult._({
     required this.isSuccess,
@@ -20,6 +25,7 @@ class AuthResult {
     this.successMessage,
     this.email,
     this.isUnconfigured = false,
+    this.needsEmailVerification = false,
   });
 
   factory AuthResult.success({String? message, String? email}) {
@@ -34,6 +40,15 @@ class AuthResult {
     return AuthResult._(
       isSuccess: false,
       errorMessage: error,
+    );
+  }
+
+  factory AuthResult.emailNotVerified(String email) {
+    return AuthResult._(
+      isSuccess: false,
+      errorMessage: 'Please verify your email address to continue.',
+      email: email,
+      needsEmailVerification: true,
     );
   }
 
@@ -119,6 +134,51 @@ class AuthService extends ChangeNotifier {
   String? get currentUserId => currentSupabaseUser?.id;
   String? get currentUserEmail => currentSupabaseUser?.email ?? _demoEmail;
 
+  /// Kivora web server that sends verification email through Brevo SMTP.
+  static const String apiBaseUrl = String.fromEnvironment(
+    'KIVORA_API_URL',
+    defaultValue: 'http://localhost:3000',
+  );
+
+  // Held in memory only, so the user is signed in right after verifying.
+  String? _pendingEmail;
+  String? _pendingPassword;
+
+  void _rememberPendingCredentials(String email, String password) {
+    _pendingEmail = email;
+    _pendingPassword = password;
+  }
+
+  Future<AuthResult> _postToEmailApi(String path, Map<String, String> body, String fallbackError) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse('$apiBaseUrl$path'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 30));
+
+      Map<String, dynamic> data = {};
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) data = decoded;
+      } catch (_) {}
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return AuthResult.success(
+          message: data['message'] as String?,
+          email: data['email'] as String? ?? body['email'],
+        );
+      }
+      return AuthResult.failure(data['error'] as String? ?? fallbackError);
+    } on TimeoutException {
+      return AuthResult.failure('The email service took too long to respond. Please try again.');
+    } catch (e) {
+      return AuthResult.failure('Could not reach the Kivora email service at $apiBaseUrl: $e');
+    }
+  }
+
   /// Request registration and email verification code
   Future<AuthResult> signUp({
     required String email,
@@ -136,26 +196,15 @@ class AuthService extends ChangeNotifier {
         );
       }
 
-      try {
-        final response = await Supabase.instance.client.auth.signUp(
-          email: cleanEmail,
-          password: password,
-          data: {'full_name': fullName.trim()},
-        );
-
-        if (response.user != null) {
-          return AuthResult.success(
-            message: 'Verification code sent to $cleanEmail',
-            email: cleanEmail,
-          );
-        } else {
-          return AuthResult.failure('Registration failed. Please verify your details.');
-        }
-      } on AuthException catch (e) {
-        return AuthResult.failure(e.message);
-      } catch (e) {
-        return AuthResult.failure('Authentication network failure: $e');
+      final result = await _postToEmailApi(
+        '/api/auth/register',
+        {'email': cleanEmail, 'password': password, 'fullName': fullName.trim()},
+        'Registration failed. Please verify your details.',
+      );
+      if (result.isSuccess) {
+        _rememberPendingCredentials(cleanEmail, password);
       }
+      return result;
     }
 
     // 2. DEMO Mode
@@ -193,6 +242,10 @@ class AuthService extends ChangeNotifier {
           return AuthResult.failure('Invalid email or password.');
         }
       } on AuthException catch (e) {
+        if (e.code == 'email_not_confirmed' || e.message.toLowerCase().contains('email not confirmed')) {
+          _rememberPendingCredentials(cleanEmail, password);
+          return AuthResult.emailNotVerified(cleanEmail);
+        }
         return AuthResult.failure(e.message);
       } catch (e) {
         return AuthResult.failure('Authentication network failure: $e');
@@ -276,23 +329,25 @@ class AuthService extends ChangeNotifier {
         );
       }
 
-      try {
-        final res = await Supabase.instance.client.auth.verifyOTP(
-          email: cleanEmail,
-          token: cleanToken,
-          type: OtpType.signup,
-        );
+      final result = await _postToEmailApi(
+        '/api/auth/verify-email',
+        {'email': cleanEmail, 'code': cleanToken},
+        'Invalid or expired verification code.',
+      );
+      if (!result.isSuccess) return result;
 
-        if (res.session != null || res.user != null) {
-          return AuthResult.success(email: cleanEmail);
-        } else {
-          return AuthResult.failure('Invalid or expired verification code.');
-        }
-      } on AuthException catch (e) {
-        return AuthResult.failure(e.message);
-      } catch (e) {
-        return AuthResult.failure('Verification request failed: $e');
+      // Email is confirmed server-side; open a session with the password from registration.
+      final password = _pendingEmail == cleanEmail ? _pendingPassword : null;
+      _pendingEmail = null;
+      _pendingPassword = null;
+      if (password != null) {
+        final signIn = await signInWithPassword(email: cleanEmail, password: password);
+        if (signIn.isSuccess) return AuthResult.success(email: cleanEmail);
       }
+      return AuthResult.success(
+        message: 'Email verified. Please sign in to continue.',
+        email: cleanEmail,
+      );
     }
 
     // 2. DEMO Mode
@@ -322,20 +377,11 @@ class AuthService extends ChangeNotifier {
         return AuthResult.unconfigured('Email delivery provider is not configured in LIVE mode.');
       }
 
-      try {
-        await Supabase.instance.client.auth.resend(
-          type: OtpType.signup,
-          email: cleanEmail,
-        );
-        return AuthResult.success(
-          message: 'A new verification code has been sent to $cleanEmail',
-          email: cleanEmail,
-        );
-      } on AuthException catch (e) {
-        return AuthResult.failure(e.message);
-      } catch (e) {
-        return AuthResult.failure('Failed to resend code: $e');
-      }
+      return _postToEmailApi(
+        '/api/auth/resend-code',
+        {'email': cleanEmail},
+        'Failed to resend code.',
+      );
     }
 
     _demoOtp = '123456';

@@ -95,6 +95,15 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
       setState(() => _isLoading = false);
 
       if (result.isSuccess) {
+        // Live mode without a session (e.g. app reloaded mid-signup): verified, but must sign in.
+        if (AuthService().isLiveMode && !widget.isDemoMode && AuthService().currentSupabaseUser == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(result.successMessage ?? 'Email verified. Please sign in.')),
+          );
+          context.go('/auth/sign-in');
+          return;
+        }
+
         // Mark user email verified in session
         KivoraService().setCurrentUser(
           email: widget.email,
